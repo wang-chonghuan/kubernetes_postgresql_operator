@@ -1,0 +1,22 @@
+先手工创建三个一样的pv
+然后创建sts(要有数据库的用户名和密码)
+sts的vct的三个属性要和pv一致
+accessModes: [ "ReadWriteOnce" ]
+storageClassName: "local-storage"
+storage: 1Gi
+
+如果pod长时间pending,说明有错
+k describe pod xxx
+如果pod的状态是error
+k logs pod xxx
+
+删除sts会自动删除pod,但是pvc和pv不会删除
+首先删除pvc,然后pv的状态变成released,手动删除
+
+
+Warning  FailedScheduling  14s   default-scheduler  0/2 nodes are available: 2 pod has unbound immediate PersistentVolumeClaims.
+但找不到满足要求的 PV
+
+Warning  FailedScheduling  42s   default-scheduler  0/2 nodes are available: 2 node(s) had volume node affinity conflict.
+删除pv的字段nodeAffinity
+
