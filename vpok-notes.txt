@@ -1,3 +1,7 @@
+-------------------------------------------------------------------------------
+创建一个三节点的pgsql集群sts
+-------------------------------------------------------------------------------
+
 先手工创建三个一样的pv
 然后创建sts(要有数据库的用户名和密码)
 sts的vct的三个属性要和pv一致
@@ -10,6 +14,14 @@ k describe pod xxx
 如果pod的状态是error
 k logs pod xxx
 
+k get pod
+k get sts
+k get pv
+k get pvc
+
+k delete pod xxx
+
+
 删除sts会自动删除pod,但是pvc和pv不会删除
 首先删除pvc,然后pv的状态变成released,手动删除
 
@@ -19,4 +31,101 @@ Warning  FailedScheduling  14s   default-scheduler  0/2 nodes are available: 2 p
 
 Warning  FailedScheduling  42s   default-scheduler  0/2 nodes are available: 2 node(s) had volume node affinity conflict.
 删除pv的字段nodeAffinity
+
+-------------------------------------------------------------------------------
+进入其中某个pod, 在里面创建一个db, 一个表, 做一次查询
+-------------------------------------------------------------------------------
+
+我已经成功创建了pgsql sts, 我现在想进入其中某个pod, 在里面创建一个db, 一个表, 做一次查询
+ChatGPT
+首先，你需要使用 kubectl exec 命令进入你想要操作的 Pod。Pod 的名字会以 StatefulSet 名字为基础，再加上序号。例如，如果你的 StatefulSet 名字是 postgresql，那么 Pod 的名字会是 postgresql-0、postgresql-1、postgresql-2 等等。以 postgresql-0 为例，你可以使用以下命令进入这个 Pod：
+
+bash
+Copy code
+kubectl exec -it postgresql-0 -- /bin/bash
+这条命令会在 Pod 内启动一个 bash shell，你可以在这个 shell 中执行命令。你应该会看到命令提示符变成了 root@postgresql-0:/#，表示你现在在 Pod 内部。
+
+然后，你可以运行 psql 命令连接到 PostgreSQL 数据库：
+
+bash
+Copy code
+psql -U postgres
+这条命令会连接到数据库，你应该会看到命令提示符变成了 postgres=#，表示你现在已经连接到数据库。
+
+然后，你可以运行 SQL 命令创建一个数据库：
+
+sql
+Copy code
+CREATE DATABASE mydatabase;
+然后，你可以切换到这个数据库：
+
+sql
+Copy code
+\c mydatabase
+然后，你可以创建一个表：
+
+sql
+Copy code
+CREATE TABLE mytable (
+    id serial PRIMARY KEY,
+    name VARCHAR (50) NOT NULL
+);
+然后，你可以插入一些数据：
+
+sql
+Copy code
+INSERT INTO mytable (name) VALUES ('name1'), ('name2'), ('name3');
+最后，你可以查询这个表：
+
+sql
+Copy code
+SELECT * FROM mytable;
+当你完成所有操作后，你可以输入 \q 退出 psql，然后输入 exit 退出 Pod。
+
+-------------------------------------------------------------------------------
+创建headless service
+-------------------------------------------------------------------------------
+查看发行版和内核版本
+uname -r
+cat /etc/*-release
+安装ping
+apt-get update
+apt-get install -y iputils-ping
+
+
+kubectl get pods -o wide
+kubectl get svc
+kubectl config get-contexts #查看命名空间
+Pod的DNS名字的格式为pod-name.service-name.namespace-name.svc.cluster.local
+
+切换命名空间
+kubectl config current-context
+kubectl get namespaces
+kubectl config set-context --current --namespace=<目标命名空间>
+kubectl config view --minify | grep namespace:
+kubectl config set-context --current --namespace=<目标命名空间>
+
+执行下面的命令，这将打开一个busybox的shell：
+kubectl run -it --rm --restart=Never busybox --image=busybox sh
+在这个shell中，你可以使用 nslookup 或 dig 命令来查询Kubernetes的服务名字，例如：
+nslookup kubernetes.default.svc.cluster.local
+如果DNS正常工作，你将看到对应的IP地址。
+当你完成测试后，你可以使用 exit 命令退出busybox的shell，这将自动删除这个Pod。
+
+必须先启动headless-service.yaml
+再启动sts.yaml
+sts里不但要配置label,还有一个最重要的配置serviceName
+  selector:
+    matchLabels:
+      app: postgres
+  serviceName: "pgsql-headless"
+  template:
+之后可以到一个pod里来ping其他的pod的DNS
+apt-get install -y iputils-ping
+apt-get install -y dnsutils
+
+
+
+
+
 
