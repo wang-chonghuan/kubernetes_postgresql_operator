@@ -1,2 +1,2 @@
-# SimplePgsqlOperatorKubernetes
-a k8s operator for postgresql database cluster on kubernetes implemented by python
+# VectorPostgreOperatorKubernetes
+a k8s operator for postgresql database with pgvector cluster on kubernetes implemented by python
