@@ -7,6 +7,6 @@ spec:
     storage: 1Gi
   accessModes:
   - ReadWriteOnce
-  storageClassName: local-storage
+  storageClassName: pv-pg
   hostPath:
-    path: /data/db
+    path: /data/pv-pg

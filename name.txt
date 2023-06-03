@@ -1,0 +1,2 @@
+pgset-0.pgsql-headless.default.svc.cluster.local
+pgset-1.pgsql-headless.default.svc.cluster.local

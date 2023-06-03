@@ -124,6 +124,52 @@ sts里不但要配置label,还有一个最重要的配置serviceName
 apt-get install -y iputils-ping
 apt-get install -y dnsutils
 
+-------------------------------------------------------------------------------
+同步复制
+-------------------------------------------------------------------------------
+
+完整的同步复制方案。以下是一个更为详细的步骤，这个方案是基于你已经创建了 PostgreSQL StatefulSet pgset：
+
+在主数据库上（pgset-0）
+
+进入pgset-0 pod：
+
+shell
+Copy code
+kubectl exec -it pgset-0 -- /bin/bash
+在 pgset-0 上创建一个新用户，用于数据复制：
+
+shell
+Copy code
+psql -U postgres -c "CREATE USER repl REPLICATION LOGIN CONNECTION LIMIT 1 ENCRYPTED PASSWORD 'replpassword';"
+编辑 PostgreSQL 的配置文件 postgresql.conf 以及 pg_hba.conf。在 Kubernetes 环境中，这些文件通常位于 /var/lib/postgresql/data/：
+
+在 postgresql.conf 中，添加/修改以下行：
+
+shell
+Copy code
+wal_level = replica
+max_wal_senders = 3
+max_wal_size = 1GB
+synchronous_standby_names = 'pgset-*'  # '*' allows any standby to sync
+在 pg_hba.conf 文件中，添加以下行来允许复制用户连接：
+
+shell
+Copy code
+host    replication     repl      0.0.0.0/0               md5
+保存并退出。
+
+重启 pgset-0 实例，以便配置更改生效。你可以通过 Kubernetes 的删除 pod 的方式重启它。因为你使用了 StatefulSet，因此 Kubernetes 将自动重新创建 pod。
+
+-------------------------------------------------------------------------------
+改用12
+-------------------------------------------------------------------------------
+如果整个程序以pg 15启动后
+即使把K8S资源都清空了,pv的数据还是在硬盘上
+此时改用pg 12启动, 会读取上次的pv
+找到pv的存储路径, 清空了,还是不行
+只有改名,把pv的宿主路径名改了, 才启动成功
+可见pv的数据是保存在其他地方的, 删不掉
 
 
 

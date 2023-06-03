@@ -4,7 +4,7 @@ metadata:
   name: pgset
 spec:
   serviceName: "pgset"
-  replicas: 3
+  replicas: 2
   selector:
     matchLabels:
       app: postgres
@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
       - name: postgres
-        image: postgres:latest
+        image: postgres:12.15
         env:
           - name: POSTGRES_USER
             value: postgres
@@ -34,7 +34,7 @@ spec:
       name: pgdata
     spec:
       accessModes: [ "ReadWriteOnce" ]
-      storageClassName: "local-storage"
+      storageClassName: "pv-pg"
       resources:
         requests:
           storage: 1Gi
