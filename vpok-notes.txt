@@ -171,6 +171,156 @@ host    replication     repl      0.0.0.0/0               md5
 只有改名,把pv的宿主路径名改了, 才启动成功
 可见pv的数据是保存在其他地方的, 删不掉
 
+pod连接不上nslookup kubernetes.default.svc.cluster.local
+原因是复制虚拟机副本时, 没有生成了新的MAC地址, 正确的方法应该是"包含所有网卡的MAC地址"
+我是怎么解决的? 我用ifconfig查看了IP地址, 和配置说明书上的一样, 这时我想到可能是复制完副本的启动顺序有问题.
+我发现我启动新的副本时, 那个坏掉的副本没关掉, 我以为导致重新分配了IP, 所以决定重新复制
+我想重新复制, 重新复制时发现MAC的复制策略有问题, 原来是上次选错了
+
+
+
+登录到Pod里面：你首先需要找到你的Pod的名称。你可以使用kubectl get pods命令查看你的Pod的名称，然后你可以通过kubectl exec -it <pod-name> -- /bin/bash命令登录到Pod里面。在这里，<pod-name>需要替换成你的Pod的名称。
+(这两个操作都只用在主节点中做)
+修改listen_addresses：在Pod里面，你可以使用psql命令进入PostgreSQL。然后，你可以使用ALTER SYSTEM SET listen_addresses TO '*';命令来修改listen_addresses设置。这样，PostgreSQL将监听所有的IP地址。然后，你需要通过SELECT pg_reload_conf();命令重载配置，使修改生效。
+
+创建新用户：在PostgreSQL中，你可以通过以下命令创建一个新的用户：CREATE USER replicarole WITH REPLICATION ENCRYPTED PASSWORD 'SuperSecret';。
+
+
+
+
+pg_basebackup -h pgset-0.pgsql-headless.default.svc.cluster.local -U replicarole -p 5432 -D /var/lib/PostgreSQL/12/main -Fp -Xs -P -R -S master
+
+-------------------------------------------------------------------------------
+配置复制集群的方法
+-------------------------------------------------------------------------------
+
+kubectl exec -it pgset-0 -- bash
+psql -U postgres -c "ALTER SYSTEM SET listen_addresses TO '*';"
+cat /var/lib/postgresql/data/pgdata/postgresql.conf | grep listen_addresses
+psql -U postgres -c "SELECT pg_reload_conf();"
+psql -U postgres -c "CREATE USER replicarole WITH REPLICATION ENCRYPTED PASSWORD 'SuperSecret'"
+SELECT * FROM pg_roles WHERE rolname='replicarole';
+#只需要在主服务器上设置listen_address和创建replicarole用户。从服务器不需要这些操作，因为它们只需要从主服务器接收和应用WAL日志，不需要接受来自其他服务器的连接，也不需要replicarole用户进行复制。
+
+/var/lib/postgresql/data/pgdata/pg_hba.conf
+应该允许来自任何 IP 地址的 replicarole 用户进行复制。
+所以你应该将 pg_hba.conf 配置文件中在文件中添加以下行
+host replication replicarole all md5
+运行 pg_reload_conf 函数重新加载配置：
+psql -U postgres -c "SELECT pg_reload_conf();"
+
+解读WAL和Slot
+什么是WAL段：
+WAL是PostgreSQL的写前日志（Write-Ahead Logging）的缩写。当你在数据库中执行一些修改操作（如插入、更新或删除）时，PostgreSQL会首先把这些修改记录到WAL中，然后再将这些修改应用到实际的数据文件中。这样做的好处是，如果在修改应用到数据文件之前数据库发生了崩溃，那么在数据库重启后可以通过重播WAL中的记录来恢复数据库的状态。
+一个WAL段是WAL的一个物理存储单位。在PostgreSQL中，WAL被分割成一系列连续的段，每个段的大小默认为16MB。
+
+在一个PostgreSQL的主从复制环境中，主服务器会将WAL段发送到从服务器，从服务器则会重播这些WAL段来保持与主服务器的数据同步。如果从服务器由于某些原因停机，然后在一段时间后重启，那么在这段时间内主服务器可能会生成新的WAL段，并删除旧的WAL段。这样的话，从服务器在重启后可能会发现它需要的WAL段已经被主服务器删除了，这样从服务器就无法与主服务器保持同步。
+为了解决这个问题，通过使用Slot技术，主服务器可以动态地保留需要的WAL段。你可以在主服务器上为每个从服务器创建一个Slot，主服务器会记录每个Slot所需的最旧的WAL段，然后保留所有从这个WAL段开始及其后面的WAL段。这样的话，每个从服务器重启后都能从主服务器获取到自己需要的WAL段。这种方案可以更有效地使用磁盘空间。
+
+SELECT * FROM pg_create_physical_replication_slot('pgset1_slot');
+SELECT pg_drop_replication_slot('pgset1_slot');
+
+对于pg_basebackup命令，这是一个用来创建PostgreSQL数据库的基础备份的工具，它可以同时创建一个完整的数据库备份和所有相关的WAL日志。在初始化主从复制时，pg_basebackup常被用来在从服务器上创建一个与主服务器完全相同的数据库副本。尽管你现在的目标可能只是复制数据库，但是使用pg_basebackup工具可以使得从服务器上的数据库与主服务器保持完全一致，并且能够自动处理一些复制过程中可能出现的问题，如处理WAL日志的复制等。因此，我会推荐你在初始化主从复制时使用pg_basebackup工具。在你的Kubernetes环境中，你可能需要创建一个init-container来执行pg_basebackup命令。
+
+max_wal_senders参数，是用来指定主服务器最多可以同时向多少个从服务器发送WAL日志。如果你的环境中只有一个从服务器，那么你可以将max_wal_senders设置为1。但是如果你计划将来可能会有更多的从服务器，或者你打算同时使用pg_basebackup工具，那么你可能需要将max_wal_senders设置得更大一些。这个参数也是在主服务器的postgresql.conf文件中设置的。
+
+现在配置从节点
+在从服务器上，我们需要关闭PostgreSQL服务，删除PGDATA目录，然后重新创建一个空的、具有正确权限的目录。我们可以使用以下命令来实现：这个步骤实际上是在准备 pgset-1 作为复制的从服务器，使其可以接收 pgset-0 的数据。你需要根据你的实际情况判断这个步骤是否必要，因为这会清空 pgset-1 上的所有数据。为了安全起见，你需要先确认 PostgreSQL 服务已停止。你可以使用 psql 命令尝试连接到数据库。如果连接失败，那么 PostgreSQL 服务应该已经停止。在 Kubernetes 中，你可能无法直接停止和启动 PostgreSQL 服务。相反，你可能需要删除并重新创建 pod 来达到相同的目的。这可能需要你停止 StatefulSet，然后手动删除 pod。
+kubectl exec -it pgset-1 -- bash
+rm -rf /var/lib/postgresql/data/pgdata
+mkdir /var/lib/postgresql/data/pgdata
+chown postgres:postgres /var/lib/postgresql/data/pgdata
+chmod 0700 /var/lib/postgresql/data/pgdata
+
+kubectl exec -it pgset-1 -- bash
+创建standby.signal文件。它是一个空文件，用于通知PostgreSQL在启动时运行在standby（或从）模式下。
+touch /var/lib/postgresql/data/pgdata/standby.signal
+
+修改postgresql.auto.conf文件以添加主服务器连接设置。在这里，你需要添加两行来设置primary_conninfo和primary_slot_name参数：
+echo "primary_conninfo = 'user=replicarole password=SuperSecret host=pgset-0.pgsql-headless.default.svc.cluster.local port=5432 sslmode=prefer sslcompression=0 gssencmode=prefer krbsrvname=postgres target_session_attrs=any'" >> /var/lib/postgresql/data/pgdata/postgresql.auto.conf
+echo "primary_slot_name = 'master'" >> /var/lib/postgresql/data/pgdata/postgresql.auto.conf
+
+现在让我们使用正确的选项运行pg_basebackup命令。该命令将执行从主机到从机的base_backup命令，并准备从机接收和执行接收到的WAL段，使从服务器保持在持续恢复的状态：
+pg_basebackup用于从运行中的PostgreSQL数据库服务器创建一个基础备份。在设置主从复制的过程中，pg_basebackup通常用于在从服务器上创建一个主服务器的一致性快照，以初始化从服务器。
+pg_basebackup命令的一些选项如下：
+-h 主机名，这里是主服务器的地址；
+-U 用户名，这里是复制角色；
+-p 端口，这里是主服务器的端口；
+-D 目标目录，这里是从服务器的数据目录；
+-Fp 输出文件格式，这里是普通文件；
+-Xs 包含WAL文件的方式，这里是流式传输；
+-P 显示进度；
+-R 创建恢复配置文件，也就是在从服务器的数据目录中创建recovery.conf文件；
+-S 复制槽的名称。
+kubectl exec -it pgset-1 -- su - postgres -c "pg_basebackup -h pgset-0.pgsql-headless.default.svc.cluster.local -U replicarole -p 5432 -D /var/lib/postgresql/data/pgdata -Fp -Xs -P -R -S pgset1_slot"
+
+我目前的思路是, 从db pod启动时, 先启动一个init-container,做以下初始化
+standby.signal
+postgresql.auto.conf
+pg_basebackup
+然后检查日志k logs pgset-1
+不要报这个错2023-06-03 23:48:01.962 UTC [33] FATAL:  database system identifier differs between the primary and standby
+
+-------------------------------------------------------------------------------
+启动流程梳理
+-------------------------------------------------------------------------------
+主节点启动
+主节点启动后
+psql -U postgres -c "ALTER SYSTEM SET listen_addresses TO '*';"
+psql -U postgres -c "SELECT pg_reload_conf();"
+psql -U postgres -c "CREATE USER replicarole WITH REPLICATION ENCRYPTED PASSWORD 'SuperSecret'" (IF NOT EXISTS)
+echo "host replication replicarole all md5" >> /var/lib/postgresql/data/pgdata/pg_hba.conf (IF NOT EXISTS)
+#!/bin/bash
+PGDATA_PATH="/var/lib/postgresql/data/pgdata"
+if [ -f "${PGDATA_PATH}/postgresql.conf" ]; then
+  # 使用 sed 命令来修改 max_wal_senders 的值
+  sed -i "s/^#*max_wal_senders =.*$/max_wal_senders = 2/" "${PGDATA_PATH}/postgresql.conf"
+  echo "max_wal_senders updated successfully in ${PGDATA_PATH}/postgresql.conf"
+else
+  echo "postgresql.conf file not found in ${PGDATA_PATH}"
+fi
+psql -U postgres -c "SELECT pg_reload_conf();"
+psql -U postgres -c "SELECT * FROM pg_create_physical_replication_slot('pgset1_slot');" (IF NOT EXISTS)
+从节点启动
+从节点启动后
+touch /var/lib/postgresql/data/pgdata/standby.signal (IF NOT EXISTS)
+echo "primary_conninfo = 'user=replicarole password=SuperSecret host=pgset-0.pgsql-headless.default.svc.cluster.local port=5432 sslmode=prefer sslcompression=0 gssencmode=prefer krbsrvname=postgres target_session_attrs=any'" >> /var/lib/postgresql/data/pgdata/postgresql.auto.conf (IF NOT EXISTS)
+echo "primary_slot_name = 'pgset1_slot'" >> /var/lib/postgresql/data/pgdata/postgresql.auto.conf (IF NOT EXISTS)
+kubectl exec -it pgset-1 -- su - postgres -c "pg_basebackup -h pgset-0.pgsql-headless.default.svc.cluster.local -U replicarole -p 5432 -D /var/lib/postgresql/data/pgdata -Fp -Xs -P -R -S pgset1_slot"
+重新启动该从节点
+成功
+
+-------------------------------------------------------------------------------
+异步复制成功, 解决方案
+-------------------------------------------------------------------------------
+上面的思路是对的, 但是执行的过程出了很大问题
+statefulset启动pod有两个钩子
+一个是init-container, 一个是poststart
+init-container是在主容器启动前运行, 一般用来给这个pvc做一些初始化的工作, 完成后才启动主容器
+poststart钩子是在主容器启动后执行, 但是不是在主容器启动完成后执行, 所以具有不确定性
+最开始的思路是, 把步骤里的配置工作根据其顺序, 分散到主库和从库的init和poststart里
+这就需要增加很多if判断, 判断是不是主节点.这个statefulset越写越复杂.
+后来发现, pg_basebackup命令才是重中之重, 我以前以为这个命令只是用来备份恢复的,
+其实不然, 它是用来让从库和主库对齐的, 也就是说, 从库必须首先关闭, 然后删掉pgdata所有数据, 然后执行pg_basebackup让从库完全复制主库. 这个完成之后, 从库再启动, 就能接收主库的同步了.
+但是k8s有一个问题, 运行数据库的容器, 你登录进去以后, 没法关闭数据库, 因为数据库是该容器的主进程, 重启数据库, 或者关掉数据库, 这个容器就结束了, 所以想关闭数据库, 必须关闭容器.而关闭容器, sts会自动重启容器, 所以就要关闭sts(删除或者设置replica为0), 但是关闭了sts后, 主库也关闭了, 主库关闭后, 不能在从库的pv上执行pg_basebackup命令, 因为该命令需要访问主库获取WAL. 这就陷入了矛盾.
+这时候gpt4难得显示出创造力, 他告诉我可以把sts拆成两个, 一个管主库, 一个管从库, 这样, 关了从库的sts也不影响主库的运行,真是绝妙的方法.
+这么做之后, 我的方案是, 先把两个sts启动,再把从库sts关掉,此时从库也关掉了,然后用一个pod去访问从库的pv,在这个pod里去做pg_basebackup,对齐主库,然后退出pod,重启从库sts,就成功了.
+但是这么做之后, 重启了从库, 一直报一个错
+FATAL:  database system identifier differs between the primary and standby
+这个错的意思是, 从库不是从主库完全复制过来的副本, 启动了从库后, 没法流式复制数据.
+我检查了pg_basebackup的各项参数, 以及主库从库的各项配置, 都没发现问题, 一筹莫展.卡了几个小时.
+突然我想到了一个问题, 如何在执行完pg_basebackup, 重启从库之前, 先来验证pg_basebackup有没有成功. 问了gpt4他让我检查pgdata里的几个文件的内容.
+一检查出问题了, 我发现pgdata被清空又从pg_basebackup复制之后, 竟然有standby.signal这个文件.这个文件是以前专门在从库上创建的,即使从主库复制过来, 也不可能有这个文件.一定是pv出了问题.
+我重启了一个pod访问pvc,发现挂载的pvc竟然是空的, 里面根本没有从库的数据,说明从库的pv根本没有挂载上.我一直在执行pg_basebackup,却没想到根据就没执行到从库的pv上,难怪重启从库后说没有对齐.
+pv的问题之前讨论过.我即使在硬盘上删掉了pv,重新安装sts后,还是会访问到老的pv的配置文件,导致数据库没法初始化.我的临时解决方案,是每次重新安装sts,都去声明新的pv,用新的宿主文件夹路径名,这样可以解决,但只是在敷衍,该问题至今无解.
+gpt4告诉我,每个pod的pv, 对应的宿主路径名应该不同, 我以前设的都是相同的,两个pv对应了两个hostpath路径.是错的.于是我改了, 但没验证改了后能否解决上面的那个无解问题.
+这时我正纠结如何在临时pod上正确挂载pvc,突然我灵机一动,想到,我为什么要单独弄一个pod来做这件事呢?我在从库pod的init-container上来做这件事不是更好吗, 因为init-container本来就要和从库公用一个pvc.
+于是我想到出了以下流程: 从库init-container先判断standby.signal是否存在,如果不存在,说明从库还没初始化过,此时不要执行init-container,先跳过,让从库去初始化,同时增加一些复制的配置项.如果该文件已经存在,说明从库已经初始化过了,安装好了,启动过了,就可以执行pg_basebackup来对齐了.原理很简单,如果从库一次都没启动过,从库的pv就是空的,连pg_basebackup这个工具都不存在.所以必须先判断从库是否已经启动过.如果该文件已经存在,则init-container删除从库的所有pgdata数据文件,这时执行pg_basebackup的前置要求,然后执行pg_basebackup对齐.对齐后,init-container结束,从库容器开始运行,因为已经对齐了,所以从库容器自然就进入了等待从主库接收WAL的状态.
+至此,问题解决.
+卡了这么久,主要就是没有验证pod有没有挂载成功从库的pvc.这一步不验证, 去查后面的问题,就是空中楼阁.因此一个经验是,每一步都要验证成功了没有,否则后面再出现错误,逻辑链就断了.就是说,有一步出现错误, 比如没对齐.这一步的前置条件是配置项都正确,同时pg_basebackup也正确执行.我想当然认为pg_basebackup已经正确执行, 一直盯着配置项,找错地方了.pg_basebackup没有正确执行,因为pg_basebackup要修改的pv根本就没挂载上.所以后续开发,每一步都要验证了,正确了,再往下走, 不要留隐患.
+
+
+
 
 
 

@@ -1,2 +1,17 @@
 pgset-0.pgsql-headless.default.svc.cluster.local
 pgset-1.pgsql-headless.default.svc.cluster.local
+
+pgset-master-0.pgsql-headless.default.svc.cluster.local
+pgset-replica-0.pgsql-headless.default.svc.cluster.local
+
+PGPASSWORD=SuperSecret pg_basebackup -h pgset-master-0.pgsql-headless.default.svc.cluster.local -U replicarole -p 5432 -D /var/lib/postgresql/data/pgdata -Fp -Xs -P -R -S pgset1_slot
+
+kubectl exec -it pg-backup -- /bin/bash
+kubectl exec -it pgset-master-0 -- /bin/bash
+kubectl exec -it pgset-replica-0 -- /bin/bash
+
+rm -rf /var/lib/postgresql/data/pgdata
+mkdir /var/lib/postgresql/data/pgdata
+
+apt-get install -y dnsutils
+

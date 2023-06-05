@@ -1,11 +1,11 @@
 import subprocess
 
 commands = [
-    "kubectl delete sts pgset",
-    "kubectl delete pvc pgdata-pgset-0",
-    "kubectl delete pvc pgdata-pgset-1",
-    "kubectl delete pv pv-pg-0",
-    "kubectl delete pv pv-pg-1",
+    "kubectl delete sts pgset-master --force",
+    "kubectl delete sts pgset-replica --force",
+    "kubectl delete pvc pgdata-pgset-master-0 pgdata-pgset-replica-0 --force",
+    "kubectl delete pv pv-pg-0 pv-pg-1 --force",
+    "kubectl delete svc pgsql-headless --force",
 ]
 
 for cmd in commands:

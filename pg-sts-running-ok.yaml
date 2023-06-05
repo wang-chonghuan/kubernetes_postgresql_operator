@@ -4,7 +4,7 @@ metadata:
   name: pgset
 spec:
   serviceName: "pgset"
-  replicas: 0
+  replicas: 2
   selector:
     matchLabels:
       app: postgres
@@ -14,6 +14,19 @@ spec:
       labels:
         app: postgres
     spec:
+      initContainers:
+      - name: backup
+        image: postgres:12.15
+        command:
+        - "bash"
+        - "-c"
+        - |
+          if ! hostname | grep -q 'pgset-0'; then
+            until PGPASSWORD=SuperSecret pg_basebackup -h pgset-0.pgsql-headless.default.svc.cluster.local -U replicarole -p 5432 -D /var/lib/postgresql/data/pgdata -Fp -Xs -P -R -S pgset1_slot; do
+              echo "Waiting for the Master database to be ready..."
+              sleep 2
+            done
+          fi
       containers:
       - name: postgres
         image: postgres:12.15

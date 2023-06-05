@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: pgset-master
+spec:
+  serviceName: "pgset"
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  serviceName: "pgsql-headless"
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:12.15
+        env:
+          - name: POSTGRES_USER
+            value: postgres
+          - name: POSTGRES_PASSWORD
+            value: postgres
+          - name: PGDATA
+            value: /var/lib/postgresql/data/pgdata
+        ports:
+        - containerPort: 5432
+        volumeMounts:
+        - name: pgdata
+          mountPath: /var/lib/postgresql/data
+        lifecycle:
+          postStart:
+            exec:
+              command: 
+              - "bash"
+              - "-c"
+              - |
+                #!/bin/bash
+                set -e
+                # Poll until Postgres is ready
+                until pg_isready -U postgres; do
+                  echo "Waiting for PostgreSQL to start..."
+                  sleep 2
+                done
+                echo "Post-start setup as Master..."
+                # Perform master specific setup
+                psql -U postgres -c "ALTER SYSTEM SET listen_addresses TO '*';"
+                psql -U postgres -c "ALTER SYSTEM SET wal_level TO replica;"
+                psql -U postgres -c "ALTER SYSTEM SET hot_standby TO on;"
+                psql -U postgres -c "SELECT pg_reload_conf();"
+                psql -U postgres -c "CREATE USER replicarole WITH REPLICATION ENCRYPTED PASSWORD 'SuperSecret';"
+                echo "host replication replicarole all md5" >> /var/lib/postgresql/data/pgdata/pg_hba.conf
+                sed -i "s/^#*max_wal_senders =.*$/max_wal_senders = 10/" /var/lib/postgresql/data/pgdata/postgresql.conf
+                psql -U postgres -c "SELECT pg_reload_conf();"
+                psql -U postgres -c "SELECT * FROM pg_create_physical_replication_slot('pgset1_slot');"
+  volumeClaimTemplates:
+  - metadata:
+      name: pgdata
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: "pv-pg"
+      resources:
+        requests:
+          storage: 1Gi

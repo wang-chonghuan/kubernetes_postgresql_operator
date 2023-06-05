@@ -4,7 +4,8 @@ commands = [
     "kubectl apply -f pv-0.yaml",
     "kubectl apply -f pv-1.yaml",
     "kubectl apply -f headless-service.yaml",
-    "kubectl apply -f pg-sts.yaml",
+    "kubectl apply -f pg-sts-master.yaml",
+    "kubectl apply -f pg-sts-replica.yaml",
 ]
 
 for cmd in commands:

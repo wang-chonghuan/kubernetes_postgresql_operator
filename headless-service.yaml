@@ -3,7 +3,7 @@ kind: Service
 metadata:
   name: pgsql-headless
   labels:
-    app: postgre
+    app: postgres
 spec:
   ports:
   - port: 5432
