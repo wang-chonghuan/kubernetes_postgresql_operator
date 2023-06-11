@@ -319,6 +319,68 @@ gpt4告诉我,每个pod的pv, 对应的宿主路径名应该不同, 我以前设
 至此,问题解决.
 卡了这么久,主要就是没有验证pod有没有挂载成功从库的pvc.这一步不验证, 去查后面的问题,就是空中楼阁.因此一个经验是,每一步都要验证成功了没有,否则后面再出现错误,逻辑链就断了.就是说,有一步出现错误, 比如没对齐.这一步的前置条件是配置项都正确,同时pg_basebackup也正确执行.我想当然认为pg_basebackup已经正确执行, 一直盯着配置项,找错地方了.pg_basebackup没有正确执行,因为pg_basebackup要修改的pv根本就没挂载上.所以后续开发,每一步都要验证了,正确了,再往下走, 不要留隐患.
 
+---------------------
+安装kopf
+---------------------
+sudo apt-get install python3-venv
+python3 -m venv venv-kopf
+source venv-kopf/bin/activate
+deactivate
+
+
+pip install kopf==1.35.6
+因为这个版本支持Kubernetes 1.23 & 1.24 added to CI
+https://github.com/nolar/kopf/releases
+而1.36支持更高的版本, 可能会出问题
+
+pip install pykube-ng
+https://codeberg.org/hjacobs/pykube-ng
+https://pypi.org/project/pykube-ng/22.9.0/#history
+(venv-kpof) w@kw-master:~/vpok/kpof-study$ pip list
+Package            Version
+------------------ --------
+aiohttp            3.8.4
+aiosignal          1.3.1
+async-timeout      4.0.2
+attrs              23.1.0
+certifi            2023.5.7
+charset-normalizer 3.1.0
+click              8.1.3
+frozenlist         1.3.3
+idna               3.4
+iso8601            2.0.0
+kopf               1.35.6
+multidict          6.0.4
+pip                22.0.2
+pykube-ng          22.9.0
+python-json-logger 2.0.7
+PyYAML             6.0
+requests           2.31.0
+setuptools         59.6.0
+typing_extensions  4.6.3
+urllib3            2.0.3
+yarl               1.9.2
+
+如何启动
+首先定义一个crd.yaml,应用到k8s上
+然后定义一个opt.py,启动,开始监听任何有关crd的事件
+最后定义一个cr.yaml,是crd的实例,应用到k8s上,相当于创建了一个资源
+opt.py监听到资源创建,create回调函数被调用,执行具体的资源创建工作
+就是按顺序应用那一组yaml文件,pv svc sts,并让这些资源归属于该cr
+opt.py监听该cr下属的pods,
+如果遇到replica-pod进入了running状态,就重启该pod,完成集群初始化
+当用户删除该cr时,opt.py执行具体的删除操作,依次删除spok-cr,sts
+
+具体要看代码, 最难的一点是如何在该opt的生命周期中保存状态,因为replica-pod只能执行
+https://kopf.readthedocs.io/en/stable/memos/
+在这里找到解决方案,具体是要使用Custom memo classes
+
+启动opt的常规方法是
+kopf run spok_opt.py --verbose
+但是因为定义了状态,所以要用opt的main函数启动
+
+
+
 
 
 

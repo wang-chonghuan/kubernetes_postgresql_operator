@@ -17,6 +17,7 @@ apt-get install -y dnsutils
 
 6.5日操作步骤
 python3 script-clean.py
+删除/data下的pv, 同时改名每个pv的hostPath.path: /data/pv-pg-0-16
 python3 script-install.py
 等待replica pod进入running状态后,删除replica pod即可
 

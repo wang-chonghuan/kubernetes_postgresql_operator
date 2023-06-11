@@ -1,0 +1,7 @@
+# spok-cr.yaml
+apiVersion: "mygroup.mydomain/v1"
+kind: Spok
+metadata:
+  name: spok-sample
+spec:
+  image: "postgres:12.15"
