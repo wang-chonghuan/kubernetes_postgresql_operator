@@ -379,6 +379,18 @@ https://kopf.readthedocs.io/en/stable/memos/
 kopf run spok_opt.py --verbose
 但是因为定义了状态,所以要用opt的main函数启动
 
+启动步骤
+启动opt
+实例化crd
+验证
+kubectl exec -it pgset-master-0 -- /bin/bash
+kubectl exec -it pgset-replica-0  -- /bin/bash
+psql -h localhost -p 9999 -U postgres
+
+1. 设置一个secret保存psql的用户名和密码
+2. 设置一个configmap保存pgpool2的启动参数，尤其是设置好两个数据库的域名
+3. 启动一个deployment部署pgpool2，要用到secret和configmap，不需要使用pcp
+4. 登陆pgpool2 pod然后访问数据库psql -h localhost -p 9999 -U postgres
 
 
 
