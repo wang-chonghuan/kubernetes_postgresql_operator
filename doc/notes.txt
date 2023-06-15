@@ -124,6 +124,11 @@ sts里不但要配置label,还有一个最重要的配置serviceName
 apt-get install -y iputils-ping
 apt-get install -y dnsutils
 
+I encountered a problem that each db pod cant visit each others's DNS name.
+It turned out that I set the parameters in the headless-service wrongly. 
+So if you get the same problems again, please follow the exact steps in define headless-service and the start sequence.
+Espicially the names in service.
+
 -------------------------------------------------------------------------------
 同步复制
 -------------------------------------------------------------------------------
@@ -327,6 +332,7 @@ python3 -m venv venv-kopf
 source venv-kopf/bin/activate
 deactivate
 
+pip install -r requirements.txt
 
 pip install kopf==1.35.6
 因为这个版本支持Kubernetes 1.23 & 1.24 added to CI
@@ -393,12 +399,44 @@ psql -h localhost -p 9999 -U postgres
 4. 登陆pgpool2 pod然后访问数据库psql -h localhost -p 9999 -U postgres
 
 -------------------------------------------------------------------------------
+synchronous replication
+-------------------------------------------------------------------------------
+要验证 PostgreSQL 设置为同步复制，你可以使用以下方法：
+
+查询 pg_stat_replication 视图： pg_stat_replication 是一个视图，包含了关于每个复制工作的状态信息。你可以执行如下查询来查看复制状态：
+
+sql
+Copy code
+SELECT * FROM pg_stat_replication;
+在查询结果中，state 列的值应为 'streaming'，表示主服务器和副服务器间的复制正在进行。sync_state 列的值为 'sync'，表示副服务器正在与主服务器进行同步复制。
+-------------------------------------------------------------------------------
 PV
 -------------------------------------------------------------------------------
 使用local时，必须在本机上创建好文件夹，才能挂载到PV上
 使用hostpath时，PV自动创建文件夹，但这个文件夹可能位于任何节点，必须手动全部删除，否则下次启动数据库会使用老数据
 
+-------------------------------------------------------------------------------
+psql configuration
+-------------------------------------------------------------------------------
+在 PostgreSQL 中，你可以使用 ALTER SYSTEM 命令来修改配置参数，但这些修改并不直接反映在主配置文件 postgresql.conf 中。相反，它们会写入到一个名为 postgresql.auto.conf 的文件中，这个文件位于你的数据目录下，例如 /var/lib/postgresql/data/pgdata/postgresql.auto.conf。
 
+这是因为 ALTER SYSTEM 是一个会话级别的命令，它对 PostgreSQL 的行为产生影响，但不会直接修改主配置文件。
 
+为了查看 synchronous_standby_names 参数的当前值，你可以在 PostgreSQL 会话中执行以下 SQL 命令：
 
+sql
+Copy code
+SHOW synchronous_standby_names;
+你也可以通过查询 pg_settings 视图来查看所有配置参数的当前值：
+
+sql
+Copy code
+SELECT name, setting FROM pg_settings WHERE name = 'synchronous_standby_names';
+这个视图包含了 PostgreSQL 的所有配置参数，包括那些被 ALTER SYSTEM 修改过的参数。
+
+postgres=# SELECT name, setting FROM pg_settings WHERE name = 'synchronous_standby_names';
+           name            | setting 
+---------------------------+---------
+ synchronous_standby_names | *
+(1 row)
 

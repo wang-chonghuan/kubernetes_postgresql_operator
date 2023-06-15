@@ -16,3 +16,10 @@ echo "host replication replicarole all md5" >> /var/lib/postgresql/data/pgdata/p
 sed -i "s/^#*max_wal_senders =.*$/max_wal_senders = 10/" /var/lib/postgresql/data/pgdata/postgresql.conf
 psql -U postgres -c "SELECT pg_reload_conf();"
 psql -U postgres -c "SELECT * FROM pg_create_physical_replication_slot('pgset1_slot');"
+
+# Check if SYNC_COMMIT is true
+#if [ "${1}" = "true" ]; then
+    psql -U postgres -c "ALTER SYSTEM SET synchronous_standby_names TO '*';"
+    psql -U postgres -c "ALTER SYSTEM SET synchronous_commit TO on;"
+    psql -U postgres -c "SELECT pg_reload_conf();"
+#fi
