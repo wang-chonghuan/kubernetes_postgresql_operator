@@ -1,7 +1,7 @@
 # SimplePostgresOperatorKubernetes
 This project is a highly available PostgreSQL replication cluster on Kubernetes with a Python Operator.
 
-# Key features of this project include:
+# Key features of this project:
 Master-slave replication,
 Read-write separation,
 Automated deployment and monitor,
