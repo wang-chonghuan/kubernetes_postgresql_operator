@@ -1,7 +1,0 @@
-# spok-cr.yaml
-apiVersion: "mygroup.mydomain/v1"
-kind: Spok
-metadata:
-  name: spok-cluster
-spec:
-  image: "postgres:12.15"
