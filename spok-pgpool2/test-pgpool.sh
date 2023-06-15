@@ -4,4 +4,4 @@
 POD_NAME=$(kubectl get pods -l app=pgpool -o jsonpath="{.items[0].metadata.name}")
 
 # 使用psql命令行工具进行查询
-kubectl exec -it $POD_NAME -- psql -h localhost -p 9999 -U postgres -d db_test -c "SELECT * FROM tbl_test WHERE id = 0;"
+kubectl exec -it $POD_NAME -- psql -h localhost -p 9999 -U postgres

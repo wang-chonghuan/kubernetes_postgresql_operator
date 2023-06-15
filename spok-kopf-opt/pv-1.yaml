@@ -9,4 +9,4 @@ spec:
   - ReadWriteOnce
   storageClassName: pv-pg
   hostPath:
-    path: /data/pv-pg-1-16
+    path: /data/pv-pg-1
