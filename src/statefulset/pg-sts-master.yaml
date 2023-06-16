@@ -26,6 +26,10 @@ spec:
             value: /var/lib/postgresql/data/pgdata
           - name: SYNC_COMMIT  # 添加新的环境变量
             value: "true"     # 为新的环境变量设定默认值
+          - name: POD_NAME  # 添加新的环境变量
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name  # 使用Pod的名称作为环境变量的值
         ports:
         - containerPort: 5432
         volumeMounts:
@@ -39,7 +43,6 @@ spec:
               command:
               - "bash"
               - "/spok-sts-scripts/master-poststart.sh"
-              - "${SYNC_COMMIT}" # 将新的环境变量作为脚本的参数
       volumes: # 添加这个部分
       - name: spok-sts-scripts
         configMap:

@@ -24,3 +24,18 @@ python3 script-clean.py
 python3 script-install.py
 等待replica pod进入running状态后,删除replica pod即可
 
+-------------------------------------------------------------------------------
+test and troubleshooting
+-------------------------------------------------------------------------------
+kubectl exec -it pg-backup -- /bin/bash
+kubectl exec -it pgset-master-0 -- /bin/bash
+kubectl exec -it pgset-replica-0 -- /bin/bash
+
+kubectl exec -it pgset-master-0 -- psql -U postgres
+kubectl exec -it pgset-replica-0 -- psql -U postgres
+
+SELECT * FROM pg_stat_replication;
+
+
+
+

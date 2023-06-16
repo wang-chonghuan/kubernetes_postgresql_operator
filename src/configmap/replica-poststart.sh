@@ -7,7 +7,7 @@ if [ ! -d "/spok_logs" ]; then
 fi
 
 LOG_PATH="/spok_logs/poststart.log"
-echo "SYNC_COMMIT value: ${SYNC_COMMIT}" >> ${LOG_PATH}
+echo "ENV values: ${SYNC_COMMIT}, ${POD_NAME}" >> ${LOG_PATH}
 
 # Poll until Postgres is ready
 until pg_isready -U postgres; do
@@ -24,14 +24,17 @@ PRIMARY_CONNINFO="user=replicarole password=SuperSecret host=pgset-master-0.pgsq
 
 # Check if SYNC_COMMIT is true and append application_name if necessary
 if [ "${SYNC_COMMIT}" = "true" ]; then
-    PRIMARY_CONNINFO+=" application_name=pgset-replica-0.pgsql-headless.default.svc.cluster.local"
+    PRIMARY_CONNINFO+=" application_name=${POD_NAME}.pgsql-headless.default.svc.cluster.local"
     echo "SYNC_COMMIT is true, appended application_name" >> ${LOG_PATH}
 fi
 
 # Write primary_conninfo to the configuration
 echo "primary_conninfo = '${PRIMARY_CONNINFO}'" >> /var/lib/postgresql/data/pgdata/postgresql.auto.conf
 
-echo "primary_slot_name = 'pgset1_slot'" >> /var/lib/postgresql/data/pgdata/postgresql.auto.conf
+# Get the last part of the POD_NAME (the replica number)
+REPLICA_NUMBER=${POD_NAME##*-}
+echo "REPLICA_NUMBER: ${REPLICA_NUMBER}" >> ${LOG_PATH}
+echo "primary_slot_name = 'pgset${REPLICA_NUMBER}_slot'" >> /var/lib/postgresql/data/pgdata/postgresql.auto.conf
 # Update max_wal_senders
 sed -i "s/^#*max_wal_senders =.*$/max_wal_senders = 10/" /var/lib/postgresql/data/pgdata/postgresql.conf
 psql -U postgres -c "SELECT pg_reload_conf();"

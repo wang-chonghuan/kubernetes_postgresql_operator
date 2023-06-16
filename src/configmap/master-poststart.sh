@@ -36,12 +36,12 @@ psql -U postgres -c "ALTER SYSTEM SET max_wal_senders = 10;"
 psql -U postgres -c "SELECT pg_reload_conf();"
 
 # Check if the replication slot already exists
-slot_exists=$(psql -U postgres -tAc "SELECT 1 FROM pg_replication_slots WHERE slot_name='pgset1_slot'")
+slot_exists=$(psql -U postgres -tAc "SELECT 1 FROM pg_replication_slots WHERE slot_name='pgset0_slot'")
 # If the slot doesn't exist, create it
 if [ "$slot_exists" != "1" ]; then
-    psql -U postgres -c "SELECT pg_create_physical_replication_slot('pgset1_slot');"
+    psql -U postgres -c "SELECT pg_create_physical_replication_slot('pgset0_slot');"
 else
-    echo "Replication slot pgset1_slot already exists."
+    echo "Replication slot pgset0_slot already exists."
 fi
 
 # Check if SYNC_COMMIT is true
