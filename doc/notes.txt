@@ -328,8 +328,8 @@ gpt4告诉我,每个pod的pv, 对应的宿主路径名应该不同, 我以前设
 安装kopf
 ---------------------
 sudo apt-get install python3-venv
-python3 -m venv venv-kopf
-source venv-kopf/bin/activate
+python3 -m venv venv
+source venv/bin/activate
 deactivate
 
 pip install -r requirements.txt
@@ -440,3 +440,25 @@ postgres=# SELECT name, setting FROM pg_settings WHERE name = 'synchronous_stand
  synchronous_standby_names | *
 (1 row)
 
+------------------------------------------------------------------------------
+poststart logs
+------------------------------------------------------------------------------
+#example-pod.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: echo-demo-pod
+spec:
+  containers:
+  - name: echo-demo-container
+    image: busybox
+    command: ['sh', '-c', 'while true; do sleep 10; done']
+    lifecycle:
+      postStart:
+        exec:
+          command: ["/bin/sh", "-c", "mkdir -p /spok_logs && echo 'postStart script running' > /spok_logs/poststart.log"]
+#EOF
+#show realtime logs
+kubectl exec echo-demo-pod -- tail -f /spok_logs/poststart.log
+#show logs
+kubectl exec echo-demo-pod -- cat /spok_logs/poststart.log
