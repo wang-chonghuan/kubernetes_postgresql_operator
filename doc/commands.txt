@@ -10,6 +10,9 @@ kubectl exec -it pg-backup -- /bin/bash
 kubectl exec -it pgset-master-0 -- /bin/bash
 kubectl exec -it pgset-replica-0 -- /bin/bash
 
+kubectl exec -it pgset-master-0 -- psql -U postgres
+kubectl exec -it pgset-replica-0 -- psql -U postgres
+
 rm -rf /var/lib/postgresql/data/pgdata
 mkdir /var/lib/postgresql/data/pgdata
 

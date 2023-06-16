@@ -1,5 +1,7 @@
 #!/bin/bash
 #name: init-backup
+# if the db is not installed, ignore.
+# if the db has already been installed, clean the data and start to sync from master
 if [ -f /var/lib/postgresql/data/pgdata/standby.signal ]; then
     rm -rf /var/lib/postgresql/data/pgdata
     mkdir /var/lib/postgresql/data/pgdata
