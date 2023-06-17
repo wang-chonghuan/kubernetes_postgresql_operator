@@ -36,6 +36,7 @@ kubectl exec -it pgset-replica-0 -- psql -U postgres
 
 SELECT * FROM pg_stat_replication;
 
+k apply -f ../src/operator/spok_cr.yaml
 
 
 

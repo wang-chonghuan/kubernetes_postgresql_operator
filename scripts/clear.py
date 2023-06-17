@@ -7,8 +7,8 @@ commands = [
     "kubectl delete spok spok-cluster",
     #"kubectl delete sts pgset-master",
     #"kubectl delete sts pgset-replica",
-    "kubectl delete pvc pgdata-pgset-master-0 pgdata-pgset-replica-0",
-    "kubectl delete pv pv-pg-0 pv-pg-1",
+    "kubectl delete pvc pgdata-pgset-master-0 pgdata-pgset-replica-0 pgdata-pgset-replica-1",
+    "kubectl delete pv pv-pg-0 pv-pg-1 pv-pg-2",
     "echo {} | sudo -S rm -rf /data/*".format(getpass.getpass(prompt='Enter your local sudo password: ')),
 ]
 
