@@ -5,4 +5,4 @@ metadata:
   name: spok-cluster
 spec:
   image: "postgres:12.15"
-  standbyReplicas: 3
+  standbyReplicas: 1

@@ -16,10 +16,6 @@ data:
     backend_port0 = 5432
     backend_weight0 = 1
     backend_flag0 = 'ALWAYS_PRIMARY|DISALLOW_TO_FAILOVER'
-    backend_hostname1 = 'pgset-replica-0.pgsql-headless.default.svc.cluster.local'
-    backend_port1 = 5432
-    backend_weight1 = 1
-    backend_flag1 = 'DISALLOW_TO_FAILOVER'
     sr_check_period = 0
     health_check_period = 0
     backend_clustering_mode = 'streaming_replication'
@@ -40,3 +36,7 @@ data:
   #pool_hba.conf: |-
   #  local      all         all                          trust
   #  hostssl    all         all         0.0.0.0/0        scram-sha-256
+  # backend_hostname1 = 'pgset-replica-0.pgsql-headless.default.svc.cluster.local'
+  # backend_port1 = 5432
+  # backend_weight1 = 1
+  # backend_flag1 = 'DISALLOW_TO_FAILOVER'
