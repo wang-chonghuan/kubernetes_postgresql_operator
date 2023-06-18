@@ -4,8 +4,9 @@ import time
 path = "../src"
 commands = [
     f"kubectl apply -f {path}/storage/pv-0.yaml", #创建主库PV
-    f"kubectl apply -f {path}/storage/pv-1.yaml", #创建主库PV
-    f"kubectl apply -f {path}/storage/pv-2.yaml", #创建主库PV
+    f"kubectl apply -f {path}/storage/pv-1.yaml", #创建standby库PV
+    f"kubectl apply -f {path}/storage/pv-2.yaml", #创建standby库PV
+    f"kubectl apply -f {path}/storage/pv-3.yaml", #创建standby库PV
     f"bash ./upload-configmap.sh {path}/configmap", #上传statefulset启动脚本
     f"kubectl apply -f {path}/configmap/pgpool-configmap.yaml", #上传pgpool2启动参数
     f"kubectl apply -f {path}/secret/spok-secret.yaml", #上传数据库密码

@@ -1,11 +1,13 @@
 #spok_opt.py
 import asyncio
 import dataclasses
+from typing import Optional
 import kopf
 import pykube
 import yaml
 import subprocess
 import time
+import spok_api
 
 @dataclasses.dataclass
 class ReplicaState:
@@ -15,20 +17,46 @@ class ReplicaState:
 @dataclasses.dataclass()
 class CustomContext:
     replica_state_dict: dict[str, ReplicaState]
+    current_standby_replicas: None
     def __copy__(self) -> "CustomContext":
         return self
+#?!operator重启和恢复是个大问题，同时多spok实例共存也是个大问题
+@kopf.on.startup()
+def on_startup(logger, memo: Optional[CustomContext], **_):
+    if memo is None:
+        memo = CustomContext()
+    
+    namespace = 'default'  # replace with your namespace
+    spoks = spok_api.list_spok_instances(namespace)
+    
+    for spok in spoks.get('items', []):
+        name = spok['metadata']['name']
+        memo.current_standby_replicas[name] = spok['spec'].get('standbyReplicas', 1)
+        break
 
-# 创建集群
+    logger.info(f"Startup: Initialized memo.current_standby_replicas to {memo.current_standby_replicas}")
+
+
+
 @kopf.on.create('mygroup.mydomain', 'v1', 'spoks')
-def create_fn(body, spec, meta, namespace, logger,  memo: CustomContext, **kwargs):
+def create_fn(spec, meta, namespace, logger, memo: CustomContext, **kwargs):
     api = pykube.HTTPClient(pykube.KubeConfig.from_file())
 
     file_list = [
         '../service/headless-service.yaml', 
         '../statefulset/pg-sts-master.yaml'
     ]
+    
+    standbyReplicas = spec.get('standbyReplicas', 1)
+
+    # Ensure standbyReplicas is an integer between 1 and 3
+    if not isinstance(standbyReplicas, int) or not 1 <= standbyReplicas <= 3:
+        logger.error("standbyReplicas must be an integer between 1 and 3")
+        return
+
     # Initialize replica_state_dict
     memo.replica_state_dict = {"pgset-replica-0": ReplicaState(has_been_restarted_by_opt=False, is_now_deleted_by_opt=False)}
+    memo.current_standby_replicas = 1
     for file_name in file_list:
         with open(file_name, 'r') as file:
             resource_dict = yaml.safe_load(file)
@@ -45,12 +73,18 @@ def create_fn(body, spec, meta, namespace, logger,  memo: CustomContext, **kwarg
     # Wait for 5 seconds
     logger.info("Waiting for 5 seconds before starting pg-sts-replica...")
     time.sleep(5)
-
-    # Create pg-sts-replica
+    
+   #先创建一个只含一个replica的sts，然后如果有更多节点，就对它进行scale_out
     with open('../statefulset/pg-sts-replica.yaml', 'r') as file:
         resource_dict = yaml.safe_load(file)
+        resource_dict['spec']['replicas'] = 1
         kopf.adopt(resource_dict)
-        pykube.StatefulSet(api, resource_dict).create()
+        sts = pykube.StatefulSet(api, resource_dict)
+        sts.create()
+
+    logger.info(f"一共要创建{standbyReplicas}个副本开始scale out剩余的副本")
+    if standbyReplicas > memo.current_standby_replicas:
+        scale_out(sts, memo.current_standby_replicas, standbyReplicas, logger, memo)
 
     logger.info(f"Cluster created, memo.replica_state_dict {memo.replica_state_dict}")
 
@@ -135,50 +169,81 @@ def pod_event_fn(event, body, logger, memo: CustomContext, **kwargs):
     elif will_pod_restart and memo.replica_state_dict.get(pod_name).is_now_deleted_by_opt == False:
         logger.info(f"该pod失败，但不是opt导致的，那么要重置该副本的状态")
         memo.replica_state_dict[pod_name] = ReplicaState(has_been_restarted_by_opt=False, is_now_deleted_by_opt=False)
-        
 
-@kopf.on.update('mygroup.mydomain', 'v1', 'spoks')
-def update_replicas_fn(spec, status, namespace, logger, memo: CustomContext, **kwargs):
-    # 获取旧的和新的副本数量
-    old_replicas = status.get('standbyReplicas', 1)
-    new_replicas = spec.get('standbyReplicas', 1)
-    logger.info(f"++++++++++++++++Updating standbyReplicas from {old_replicas} to {new_replicas}")
-
-    # 获取Kubernetes API客户端
-    api = pykube.HTTPClient(pykube.KubeConfig.from_file())
-    
-    # 获取StatefulSet对象
-    sts = pykube.StatefulSet.objects(api).filter(namespace=namespace).get(name='pgset-replica')
-
-    # 如果新的副本数量比旧的多，那么为新的副本创建复制插槽，同时在opt中备案
+def scale_out(sts, old_replicas, new_replicas, logger, memo):
     if new_replicas > old_replicas:
         for i in range(old_replicas, new_replicas):
             slot_name = f"pgset{i}_slot"
-            # 指定命令
             command = [
                 'kubectl', 'exec', '-it', 'pgset-master-0', '--',
                 'psql', '-U', 'postgres', '-c', 
                 f"SELECT * FROM pg_create_physical_replication_slot('{slot_name}');"
             ]
-            # 运行命令
             subprocess.run(command, check=True)
             logger.info(f"Created replication slot {slot_name} in the master database")
-            #新创建的replica要在memo里备案，设定其应该被重启一次
+
             pod_name = f"pgset-replica-{i}"
+            memo.current_standby_replicas = memo.current_standby_replicas + 1
             memo.replica_state_dict[pod_name] = ReplicaState(has_been_restarted_by_opt=False, is_now_deleted_by_opt=False)
 
+        # The sts object has been modified by someone else, retry with the latest object
+        sts.reload()
+        sts.obj['spec']['replicas'] = new_replicas
+        sts.update()
+        logger.info(f"Updated replicas of pgset-replica StatefulSet to {new_replicas}")
 
-    # 更新StatefulSet的副本数量
-    sts.obj['spec']['replicas'] = new_replicas
-    sts.update()
+def scale_in(sts, old_replicas, new_replicas, logger, memo):
+    if new_replicas < old_replicas:
+        # The sts object has been modified by someone else, retry with the latest object
+        sts.reload()
+        sts.obj['spec']['replicas'] = new_replicas
+        sts.update()
+        logger.info(f"Updated replicas of pgset-replica StatefulSet to {new_replicas}")
 
-    logger.info(f"================Updated replicas of pgset-replica StatefulSet to {new_replicas}")
+        for i in range(old_replicas-1, new_replicas-1, -1):
+            slot_name = f"pgset{i}_slot"
+            command = [
+                'kubectl', 'exec', '-it', 'pgset-master-0', '--',
+                'psql', '-U', 'postgres', '-c', 
+                f"SELECT pg_drop_replication_slot('{slot_name}');"
+            ]
+            subprocess.run(command, check=True)
+            logger.info(f"Dropped replication slot {slot_name} in the master database")
 
+            pod_name = f"pgset-replica-{i}"
+            memo.current_standby_replicas = memo.current_standby_replicas - 1
+            del memo.replica_state_dict[pod_name]
+            logger.info(f"Deleted state of pod {pod_name} from memo")
+
+@kopf.on.update('mygroup.mydomain', 'v1', 'spoks')
+def update_replicas_fn(spec, status, namespace, name, logger, memo: CustomContext, **kwargs):
+
+    api = pykube.HTTPClient(pykube.KubeConfig.from_file())
+    
+    #not working: spok = pykube.Spok.objects(api).filter(namespace=namespace).get(name=name)
+    #not working: spok = spok_api.get_spok_instance(name)
+    old_replicas = memo.current_standby_replicas
+    new_replicas = spec.get('standbyReplicas', 1)
+    logger.info(f"检测到spok的standbyReplicas变化，开始自动伸缩,rom {old_replicas} to {new_replicas}")
+
+    if old_replicas != new_replicas:
+        logger.info(f"Updating standbyReplicas from {old_replicas} to {new_replicas}")
+
+        # 这里遇到的问题是修改cr导致scale_out以后，status里读到的standbyReplicas始终是 1，不会变成2。所以我想从2扩容到3时，就失败了。解决方法是要手动更新status里的这个值，否则它不会变。
+        # 更新 Spok 对象
+        spok_api.update_spok_instance(name, namespace, new_replicas)
+
+        sts = pykube.StatefulSet.objects(api).get(name='pgset-replica')
+
+        scale_out(sts, old_replicas, new_replicas, logger, memo)
+        scale_in(sts, old_replicas, new_replicas, logger, memo)
+
+        return {'status': {'standbyReplicas': new_replicas}}  # 更新kopf的status
 
 if __name__ == '__main__':
     print('start operator main with state replica_state_dict')
     kopf.configure(verbose=True)
     asyncio.run(kopf.operator(
-        memo=CustomContext(replica_state_dict = {})
+        memo=CustomContext(replica_state_dict = {}, current_standby_replicas = 0)
     ))
 

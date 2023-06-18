@@ -557,3 +557,5 @@ ChatGPT
 [2023-06-17 18:18:21,429] kopf.objects         [INFO    ] 该pod失败，但不是opt导致的，那么要重置该副本的状态
 
 发现了这个问题，当已经完成重启，进入了running状态，那边delete事件才收到，所以它以为不是opt重启的，就导致循环重启
+
+pip install kubernetes
