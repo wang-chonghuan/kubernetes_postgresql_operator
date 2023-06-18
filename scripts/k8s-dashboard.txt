@@ -1,0 +1,19 @@
+(venv) w@kw-master:~/spok/spok-git/scripts$ vim dashboard-adminuser.yaml
+(venv) w@kw-master:~/spok/spok-git/scripts$ kubectl apply -f dashboard-adminuser.yaml
+serviceaccount/admin-user created
+clusterrolebinding.rbac.authorization.k8s.io/admin-user created
+(venv) w@kw-master:~/spok/spok-git/scripts$ kubectl -n kubernetes-dashboard describe secret $(kubectl -n kubernetes-dashboard get secret | grep admin-user | awk '{print $1}')
+Name:         admin-user-token-zx8xt
+Namespace:    kubernetes-dashboard
+Labels:       <none>
+Annotations:  kubernetes.io/service-account.name: admin-user
+              kubernetes.io/service-account.uid: 11eae6c8-9a59-4450-a942-99119b31de42
+
+Type:  kubernetes.io/service-account-token
+
+Data
+====
+ca.crt:     1099 bytes
+namespace:  20 bytes
+token:      eyJhbGciOiJSUzI1NiIsImtpZCI6ImN0ckZCcHl2S3ctV2dpNFVBTERIVTdtU3gtRVJkTDdPZ1MweTd5dFA5QTQifQ.eyJpc3MiOiJrdWJlcm5ldGVzL3NlcnZpY2VhY2NvdW50Iiwia3ViZXJuZXRlcy5pby9zZXJ2aWNlYWNjb3VudC9uYW1lc3BhY2UiOiJrdWJlcm5ldGVzLWRhc2hib2FyZCIsImt1YmVybmV0ZXMuaW8vc2VydmljZWFjY291bnQvc2VjcmV0Lm5hbWUiOiJhZG1pbi11c2VyLXRva2VuLXp4OHh0Iiwia3ViZXJuZXRlcy5pby9zZXJ2aWNlYWNjb3VudC9zZXJ2aWNlLWFjY291bnQubmFtZSI6ImFkbWluLXVzZXIiLCJrdWJlcm5ldGVzLmlvL3NlcnZpY2VhY2NvdW50L3NlcnZpY2UtYWNjb3VudC51aWQiOiIxMWVhZTZjOC05YTU5LTQ0NTAtYTk0Mi05OTExOWIzMWRlNDIiLCJzdWIiOiJzeXN0ZW06c2VydmljZWFjY291bnQ6a3ViZXJuZXRlcy1kYXNoYm9hcmQ6YWRtaW4tdXNlciJ9.fp7lxAXHV9YAtvOG4y_EDRhG2sAIDIPdHHuWr6_75Gm09u8SijeUAzZuAvdNuCUFypUbhOahLmJnOl29n1QNTZimqjLS4shq4YVVRydy55geOQfhnDqNazCbPlG7HVM2fUCkAakKN8Yx7WBXuGPeaYPGdezMoL1Jk1wmWOpGNPpJJSykhDyeMDNfNkDTiwHIVQKwlzkx9s8te-3Ne8LJeXJCM-I0yzoYVU6uCi-eVRPSh6ZZrZGFInPhLr532rsF2G1xXfUZHgk9-aYuSj9waBUK0DECQpBM-TI4AvncLTg3yOKpQgVTzd8kZkErgJnxDFXcTd_9Vv22aKd73SNb8w
+

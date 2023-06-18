@@ -559,3 +559,77 @@ ChatGPT
 发现了这个问题，当已经完成重启，进入了running状态，那边delete事件才收到，所以它以为不是opt重启的，就导致循环重启
 
 pip install kubernetes
+
+----------------------------------------------------------------------------------------------------------
+web configuration
+----------------------------------------------------------------------------------------------------------
+
+我的k8s环境是：windows笔记本，两台virtualbox虚拟机，分别装了ubuntu。我在ubuntu上搭建了kubernetes集群，都是本地的。一共两个节点。我现在需要在这个k8s上启用k8s的web配置管理系统。请告诉我具体可操作的完整步骤。
+ChatGPT
+Kubernetes的Web用户界面（通常称为Dashboard）是一个通用的基于web的Kubernetes用户界面。您可以在Dashboard中部署容器化的应用，对应用进行故障排除，还可以管理集群资源。这里是启用Kubernetes Dashboard的步骤：
+
+首先，在你的主节点上（任何一个运行kubelet并且已经设置为master的节点），运行以下命令以部署Kubernetes Dashboard：
+
+bash
+Copy code
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.4.0/aio/deploy/recommended.yaml
+这将在kubernetes-dashboard namespace下部署Kubernetes Dashboard。
+
+接下来，你需要创建一个具有管理员权限的Service Account，以便访问Dashboard。可以创建一个名为admin-user的Service Account，并赋予其cluster-admin的角色。这可以通过以下YAML文件完成：
+
+yaml
+Copy code
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: admin-user
+  namespace: kubernetes-dashboard
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: admin-user
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+- kind: ServiceAccount
+  name: admin-user
+  namespace: kubernetes-dashboard
+保存上面的内容为dashboard-adminuser.yaml，然后使用kubectl应用它：
+
+bash
+Copy code
+kubectl apply -f dashboard-adminuser.yaml
+然后，你需要获取admin-user Service Account的Bearer Token。使用以下命令：
+
+bash
+Copy code
+kubectl -n kubernetes-dashboard describe secret $(kubectl -n kubernetes-dashboard get secret | grep admin-user | awk '{print $1}')
+这将显示一个token，你需要将此token复制保存，用于登录Dashboard。
+
+现在，你应该启动Kubernetes proxy，以便在本地访问Dashboard：
+
+bash
+Copy code
+kubectl proxy
+然后，在你的浏览器中，你可以通过以下URL访问Dashboard：
+
+bash
+Copy code
+http://localhost:8001/api/v1/namespaces/kubernetes-dashboard/services/https:kubernetes-dashboard:/proxy/
+它会提示你输入一个token，将刚才复制的token粘贴到这里，然后点击“SIGN IN”。这时，你应该可以看到Kubernetes Dashboard，并可以开始管理你的Kubernetes集群。
+
+注意：由于默认情况下，kubernetes-dashboard仅接受localhost的连接，因此你需要在你的主节点上执行上述操作。如果你想从远程或者其他节点访问，可能需要对你的网络配置进行一些更改。
+
+
+
+
+
+User
+该界面好像不能显示custom resource definition?
+ChatGPT
+是的，截至我所知道的最新信息（2021年9月），Kubernetes Dashboard 并不直接支持显示或管理 Custom Resource Definitions (CRDs)。 Kubernetes Dashboard 主要关注 Kubernetes 的内建资源类型，如 Pods、Services、Deployments 等。
+
+对于CRDs的管理，你可能需要使用其他的Kubernetes管理界面工具，如 Lens、Rancher、OpenShift等，它们支持更广泛的Kubernetes功能，包括CRDs。
