@@ -34,7 +34,7 @@ def on_startup(logger, memo: Optional[CustomContext], **_):
         memo.current_standby_replicas[name] = spok['spec'].get('standbyReplicas', 1)
         break
 
-    logger.info(f"Startup: Initialized memo.current_standby_replicas to {memo.current_standby_replicas}")
+    logger.info(f"SPOK_LOG_ Startup: Initialized memo.current_standby_replicas to {memo.current_standby_replicas}")
 
 
 
@@ -47,16 +47,16 @@ def create_fn(spec, meta, namespace, logger, memo: CustomContext, **kwargs):
         '../statefulset/pg-sts-master.yaml'
     ]
     
-    standbyReplicas = spec.get('standbyReplicas', 1)
+    standbyReplicas = spec.get('standbyReplicas', 0)
 
     # Ensure standbyReplicas is an integer between 1 and 3
-    if not isinstance(standbyReplicas, int) or not 1 <= standbyReplicas <= 3:
-        logger.error("standbyReplicas must be an integer between 1 and 3")
+    if not isinstance(standbyReplicas, int) or not 0 <= standbyReplicas <= 3:
+        logger.error("SPOK_LOG_ standbyReplicas must be an integer between 0 and 3")
         return
 
     # Initialize replica_state_dict
-    memo.replica_state_dict = {"pgset-replica-0": ReplicaState(has_been_restarted_by_opt=False, is_now_deleted_by_opt=False)}
-    memo.current_standby_replicas = 1
+    # memo.replica_state_dict = {"pgset-replica-0": ReplicaState(has_been_restarted_by_opt=False, is_now_deleted_by_opt=False)}
+    memo.current_standby_replicas = 0
     for file_name in file_list:
         with open(file_name, 'r') as file:
             resource_dict = yaml.safe_load(file)
@@ -71,13 +71,13 @@ def create_fn(spec, meta, namespace, logger, memo: CustomContext, **kwargs):
                 pykube.StatefulSet(api, resource_dict).create()
 
     # Wait for 5 seconds
-    logger.info("Waiting for 5 seconds before starting pg-sts-replica...")
+    logger.info("SPOK_LOG_ Waiting for 5 seconds before starting pg-sts-replica...")
     time.sleep(5)
     
-   #先创建一个只含一个replica的sts，然后如果有更多节点，就对它进行scale_out
+    #先创建一个只含0个replica的sts，然后如果有更多节点，就对它进行scale_out
     with open('../statefulset/pg-sts-replica.yaml', 'r') as file:
         resource_dict = yaml.safe_load(file)
-        resource_dict['spec']['replicas'] = 1
+        resource_dict['spec']['replicas'] = 0
         kopf.adopt(resource_dict)
         sts = pykube.StatefulSet(api, resource_dict)
         sts.create()

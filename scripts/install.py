@@ -13,7 +13,8 @@ commands = [
     #f"kubectl apply -f {path}/service/headless-service.yaml", #创建DNS命名服务
     #f"kubectl apply -f {path}/statefulset/pg-sts-master.yaml", #创建主库statefulset
     #f"kubectl apply -f {path}/statefulset/pg-sts-replica.yaml", #创建从库statefulset
-    f"kubectl apply -f {path}/operator/spok_cr.yaml", # create cluster
+    f"kubectl apply -f {path}/crd/spok_crd.yaml", # create cluster
+    f"kubectl apply -f {path}/crd/spok_cr.yaml", # create cluster
     f"kubectl apply -f {path}/gateway/pgpool-deploy.yaml" #创建pgpool2 deployment
 ]
 

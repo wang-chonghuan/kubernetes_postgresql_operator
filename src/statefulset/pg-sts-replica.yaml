@@ -4,7 +4,7 @@ metadata:
   name: pgset-replica
 spec:
   serviceName: "pgset"
-  replicas: 1
+  replicas: 0
   selector:
     matchLabels:
       app: postgres

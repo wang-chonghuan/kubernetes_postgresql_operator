@@ -26,5 +26,5 @@ spec:
                 default: "postgres:12.15"
               standbyReplicas:
                 type: integer
-                minimum: 1
-                default: 1
+                minimum: 0
+                default: 0

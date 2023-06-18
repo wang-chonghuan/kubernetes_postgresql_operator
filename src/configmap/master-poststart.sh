@@ -39,7 +39,9 @@ psql -U postgres -c "SELECT pg_reload_conf();"
 slot_exists=$(psql -U postgres -tAc "SELECT 1 FROM pg_replication_slots WHERE slot_name='pgset0_slot'")
 # If the slot doesn't exist, create it
 if [ "$slot_exists" != "1" ]; then
-    psql -U postgres -c "SELECT pg_create_physical_replication_slot('pgset0_slot');"
+    #psql -U postgres -c "SELECT pg_create_physical_replication_slot('pgset0_slot');"
+    # do not create slot0, for supporting only master db and no standby
+    echo "Replication slot pgset0_slot NO exists."
 else
     echo "Replication slot pgset0_slot already exists."
 fi
