@@ -8,19 +8,10 @@ import yaml
 import subprocess
 import time
 import spok_api
-import pgpool_update
-
-@dataclasses.dataclass
-class ReplicaState:
-    has_been_restarted_by_opt: bool
-    is_now_deleted_by_opt: bool
-
-@dataclasses.dataclass()
-class CustomContext:
-    replica_state_dict: dict[str, ReplicaState]
-    current_standby_replicas: None
-    def __copy__(self) -> "CustomContext":
-        return self
+import autoscaler
+from operator_context import CustomContext
+from operator_context import ReplicaState
+    
 #?!operator重启和恢复是个大问题，同时多spok实例共存也是个大问题
 @kopf.on.startup()
 def on_startup(logger, memo: Optional[CustomContext], **_):
@@ -85,7 +76,7 @@ def create_fn(spec, meta, namespace, logger, memo: CustomContext, **kwargs):
 
     logger.info(f"一共要创建{standbyReplicas}个副本开始scale out剩余的副本")
     if standbyReplicas > memo.current_standby_replicas:
-        scale_out(api, sts, memo.current_standby_replicas, standbyReplicas, logger, memo)
+        autoscaler.scale_out(api, sts, memo.current_standby_replicas, standbyReplicas, logger, memo)
 
     logger.info(f"Cluster created, memo.replica_state_dict {memo.replica_state_dict}")
 
@@ -114,9 +105,11 @@ def pod_event_fn(event, body, logger, memo: CustomContext, **kwargs):
     #发现了这个问题，当已经完成重启，进入了running状态，那边delete事件才收到，所以它以为不是opt重启的，就导致循环重启
 
     #如果该replica刚进入running状态，又没有被opt重启过，那么它需要被重启一次
+    replica_state = memo.replica_state_dict.get(pod_name)
     if (pod_name.startswith('pgset-replica-')  
         and body['status']['phase'] == 'Running'
-        and memo.replica_state_dict.get(pod_name).has_been_restarted_by_opt == False):
+        and replica_state
+        and replica_state.has_been_restarted_by_opt == False):
         logger.info(f"restart replica once by config requred: {pod_name}")
         memo.replica_state_dict[pod_name] = ReplicaState(has_been_restarted_by_opt=True, is_now_deleted_by_opt=True)
         pod = pykube.Pod.objects(api).get_by_name(pod_name)
@@ -172,52 +165,6 @@ def pod_event_fn(event, body, logger, memo: CustomContext, **kwargs):
         logger.info(f"该pod失败，但不是opt导致的，那么要重置该副本的状态")
         memo.replica_state_dict[pod_name] = ReplicaState(has_been_restarted_by_opt=False, is_now_deleted_by_opt=False)
 
-def scale_out(api, sts, old_replicas, new_replicas, logger, memo):
-    if new_replicas > old_replicas:
-        pgpool_update.add_pgpool_replicas(api, old_replicas, new_replicas, logger)
-        for i in range(old_replicas, new_replicas):
-            slot_name = f"pgset{i}_slot"
-            command = [
-                'kubectl', 'exec', '-it', 'pgset-master-0', '--',
-                'psql', '-U', 'postgres', '-c', 
-                f"SELECT * FROM pg_create_physical_replication_slot('{slot_name}');"
-            ]
-            subprocess.run(command, check=True)
-            logger.info(f"Created replication slot {slot_name} in the master database")
-
-            pod_name = f"pgset-replica-{i}"
-            memo.current_standby_replicas = memo.current_standby_replicas + 1
-            memo.replica_state_dict[pod_name] = ReplicaState(has_been_restarted_by_opt=False, is_now_deleted_by_opt=False)
-
-        # The sts object has been modified by someone else, retry with the latest object
-        sts.reload()
-        sts.obj['spec']['replicas'] = new_replicas
-        sts.update()
-        logger.info(f"Updated replicas of pgset-replica StatefulSet to {new_replicas}")
-
-def scale_in(api, sts, old_replicas, new_replicas, logger, memo):
-    if new_replicas < old_replicas:
-        pgpool_update.del_pgpool_replicas(api, old_replicas, new_replicas, logger)
-        # The sts object has been modified by someone else, retry with the latest object
-        sts.reload()
-        sts.obj['spec']['replicas'] = new_replicas
-        sts.update()
-        logger.info(f"Updated replicas of pgset-replica StatefulSet to {new_replicas}")
-
-        for i in range(old_replicas-1, new_replicas-1, -1):
-            slot_name = f"pgset{i}_slot"
-            command = [
-                'kubectl', 'exec', '-it', 'pgset-master-0', '--',
-                'psql', '-U', 'postgres', '-c', 
-                f"SELECT pg_drop_replication_slot('{slot_name}');"
-            ]
-            subprocess.run(command, check=True)
-            logger.info(f"Dropped replication slot {slot_name} in the master database")
-
-            pod_name = f"pgset-replica-{i}"
-            memo.current_standby_replicas = memo.current_standby_replicas - 1
-            del memo.replica_state_dict[pod_name]
-            logger.info(f"Deleted state of pod {pod_name} from memo")
 
 @kopf.on.update('mygroup.mydomain', 'v1', 'spoks')
 def update_replicas_fn(spec, status, namespace, name, logger, memo: CustomContext, **kwargs):
@@ -239,8 +186,8 @@ def update_replicas_fn(spec, status, namespace, name, logger, memo: CustomContex
 
         sts = pykube.StatefulSet.objects(api).get(name='pgset-replica')
 
-        scale_out(api, sts, old_replicas, new_replicas, logger, memo)
-        scale_in(api, sts, old_replicas, new_replicas, logger, memo)
+        autoscaler.scale_out(api, sts, old_replicas, new_replicas, logger, memo)
+        autoscaler.scale_in(api, sts, old_replicas, new_replicas, logger, memo)
 
         pgpool_pod = pykube.Pod.objects(api).filter(selector={'app': 'pgpool'}).get()
         pgpool_pod.delete()
