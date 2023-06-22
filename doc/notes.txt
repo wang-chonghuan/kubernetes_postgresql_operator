@@ -646,3 +646,147 @@ ChatGPT
 是的，截至我所知道的最新信息（2021年9月），Kubernetes Dashboard 并不直接支持显示或管理 Custom Resource Definitions (CRDs)。 Kubernetes Dashboard 主要关注 Kubernetes 的内建资源类型，如 Pods、Services、Deployments 等。
 
 对于CRDs的管理，你可能需要使用其他的Kubernetes管理界面工具，如 Lens、Rancher、OpenShift等，它们支持更广泛的Kubernetes功能，包括CRDs。
+
+----------------------------------------------------------------------------------------------------------
+prometheus
+----------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------配置好后的启动步骤
+helm uninstall prometheus --namespace default
+清理PV和PVC
+helm install prometheus prometheus-community/prometheus --namespace default -f ../src/prometheus/values.yaml
+export POD_NAME=$(kubectl get pods --namespace default -l "app.kubernetes.io/name=prometheus,app.kubernetes.io/instance=prometheus" -o jsonpath="{.items[0].metadata.name}")
+kubectl --namespace default port-forward $POD_NAME 9090
+curl http://localhost:9090
+container_memory_usage_bytes{namespace="default", container="postgres"}
+-----------------------------------------------------------------------------------配置
+
+下载Prom的配置文件到../src/prometheus/values.yaml
+https://github.com/prometheus-community/helm-charts/blob/main/charts/prometheus/values.yaml
+修改配置文件第一处，把这里修改成1Gi，否则原来的8Gi太大了，这是AlarmManager（prometheus-alertmanager-0）用的    
+## Prometheus server data Persistent Volume size
+size: 1Gi
+修改配置文件第二处，这是Prom Server（prometheus-server-655595dc7-njmsb）用的，因为该服务要修改日志，没权限，要改成root权限
+  ## Security context to be added to server pods
+  ##
+  #securityContext:
+  #  runAsUser: 65534
+  #  runAsNonRoot: true
+  #  runAsGroup: 65534
+  #  fsGroup: 65534
+  securityContext:
+    runAsUser: 0
+    runAsNonRoot: false
+    runAsGroup: 0
+    fsGroup: 0
+
+AlarmManager和PromServer是有状态服务，它们分别需要一块固定大小的PV，1G和2G，而且其StorageClassName都为空
+具体内容参考项目中的文件，创建该两个PV
+
+-----------------------------------------------------------------------------------安装
+
+首先安装helm
+sudo snap install helm --classic
+
+安装prom
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo update
+helm install prometheus prometheus-community/prometheus --namespace default -f ../src/prometheus/values.yaml
+
+卸载prom
+helm uninstall prometheus --namespace default
+
+-----------------------------------------------------------------------------------查询
+
+install以后，看到所有的pod都running了，然后执行以下两个命令启动web ui
+(venv) w@kw-master:~/spok/spok-git/scripts$ export POD_NAME=$(kubectl get pods --namespace default -l "app.kubernetes.io/name=prometheus,app.kubernetes.io/instance=prometheus" -o jsonpath="{.items[0].metadata.name}")
+(venv) w@kw-master:~/spok/spok-git/scripts$ kubectl --namespace default port-forward $POD_NAME 9090
+然后访问http://localhost:9090
+在界面上执行以下的命令执行查询
+k get nodes
+NAME        STATUS   ROLES                  AGE    VERSION
+kw-master   Ready    control-plane,master   128d   v1.23.3
+kw-node1    Ready    <none>                 128d   v1.23.0
+---------------------------------
+(venv) w@kw-master:~/spok/spok-git/scripts$ k get pods
+NAME                                                 READY   STATUS        RESTARTS   AGE
+pgpool-6b4db774cf-btl4d                              1/1     Running       0          20s
+pgset-master-0                                       1/1     Running       0          4m54s
+pgset-replica-0                                      1/1     Running       0          4m40s
+pgset-replica-1                                      1/1     Running       0          11s
+--------------------------------------
+以上是我k8s节点和psql的pod的列表。你告诉我一组prom查询语句，我现在就要查到它们的各种必要状态（根据我的伸缩需求要要求你刚才提供的状态）
+ChatGPT
+基于你提供的信息和你的需求，你可能需要使用以下 Prometheus 查询语句：
+集群级别的 CPU 使用率：Prometheus 的 node_cpu_seconds_total 指标可以用来计算每个节点的 CPU 使用情况。以下的查询语句会计算每个节点的 CPU 使用率：
+promql
+Copy code
+100 - (avg by (instance) (irate(node_cpu_seconds_total{job="node",mode="idle"}[5m])) * 100)
+你还可以用 avg() 函数将所有节点的 CPU 使用率求平均，得到整个集群的 CPU 使用率：
+promql
+Copy code
+avg(100 - (avg by (instance) (irate(node_cpu_seconds_total{job="node",mode="idle"}[5m])) * 100))
+集群级别的内存使用率：以下的查询语句会计算每个节点的内存使用率：
+promql
+Copy code
+(node_memory_MemTotal_bytes - node_memory_MemFree_bytes - node_memory_Buffers_bytes - node_memory_Cached_bytes) / node_memory_MemTotal_bytes * 100
+同样，你还可以用 avg() 函数将所有节点的内存使用率求平均，得到整个集群的内存使用率。
+每个 PostgreSQL 副本的 CPU 使用率：以下的查询语句会计算每个 PostgreSQL 副本的 CPU 使用率：
+promql
+Copy code
+rate(container_cpu_usage_seconds_total{namespace="default", container="postgres"}[5m])
+这里假设你的 PostgreSQL 容器的名称是 "postgres"，并且它们运行在 "default" 命名空间。你需要根据你的实际情况修改这个查询。
+每个 PostgreSQL 副本的内存使用率：以下的查询语句会计算每个 PostgreSQL 副本的内存使用情况：
+promql
+Copy code
+container_memory_usage_bytes{namespace="default", container="postgres"}
+你可以通过 Prometheus 的 Web UI（通常是 http://<prometheus-server>:9090/graph）运行这些查询语句，或者通过 Prometheus 的 HTTP API（http://<prometheus-server>:9090/api/v1/query?query=<promql>）在你的 Operator 中查询这些指标。
+请注意，以上的查询语句可能需要根据你的实际环境进行调整。例如，你可能需要修改容器的名称，或者使用不同的时间范围。
+
+-------------------------------------------------------------------------------------------------install日志
+w@kw-master:~$ helm install prometheus prometheus-community/prometheus --namespace default
+NAME: prometheus
+LAST DEPLOYED: Thu Jun 22 12:04:19 2023
+NAMESPACE: default
+STATUS: deployed
+REVISION: 1
+TEST SUITE: None
+NOTES:
+The Prometheus server can be accessed via port 80 on the following DNS name from within your cluster:
+prometheus-server.default.svc.cluster.local
+
+
+Get the Prometheus server URL by running these commands in the same shell:
+  export POD_NAME=$(kubectl get pods --namespace default -l "app.kubernetes.io/name=prometheus,app.kubernetes.io/instance=prometheus" -o jsonpath="{.items[0].metadata.name}")
+  kubectl --namespace default port-forward $POD_NAME 9090
+
+
+The Prometheus alertmanager can be accessed via port 9093 on the following DNS name from within your cluster:
+prometheus-alertmanager.default.svc.cluster.local
+
+
+Get the Alertmanager URL by running these commands in the same shell:
+  export POD_NAME=$(kubectl get pods --namespace default -l "app.kubernetes.io/name=alertmanager,app.kubernetes.io/instance=prometheus" -o jsonpath="{.items[0].metadata.name}")
+  kubectl --namespace default port-forward $POD_NAME 9093
+#################################################################################
+######   WARNING: Pod Security Policy has been disabled by default since    #####
+######            it deprecated after k8s 1.25+. use                        #####
+######            (index .Values "prometheus-node-exporter" "rbac"          #####
+###### .          "pspEnabled") with (index .Values                         #####
+######            "prometheus-node-exporter" "rbac" "pspAnnotations")       #####
+######            in case you still need it.                                #####
+#################################################################################
+
+
+The Prometheus PushGateway can be accessed via port 9091 on the following DNS name from within your cluster:
+prometheus-prometheus-pushgateway.default.svc.cluster.local
+
+
+Get the PushGateway URL by running these commands in the same shell:
+  export POD_NAME=$(kubectl get pods --namespace default -l "app=prometheus-pushgateway,component=pushgateway" -o jsonpath="{.items[0].metadata.name}")
+  kubectl --namespace default port-forward $POD_NAME 9091
+
+For more information on running Prometheus, visit:
+https://prometheus.io/
+w@kw-master:~$ 
+
+----------------------------------------------------------------------------------------------------------

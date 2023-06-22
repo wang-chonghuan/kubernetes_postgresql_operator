@@ -38,5 +38,8 @@ SELECT * FROM pg_stat_replication;
 
 k apply -f ../src/operator/spok_cr.yaml
 
-
-
+------------------------------------------------------------------------------------------
+helm uninstall prometheus --namespace default
+helm install prometheus prometheus-community/prometheus --namespace default -f ../src/prometheus/values.yaml
+k apply -f ../src/prometheus/pv-prometheus-server.yaml
+k apply -f ../src/prometheus/pv-storage-prometheus-alertmanager-0.yaml
