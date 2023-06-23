@@ -1,6 +1,7 @@
 #spok_opt.py
 import asyncio
 import dataclasses
+import datetime
 from typing import Optional
 import kopf
 import pykube
@@ -9,6 +10,7 @@ import subprocess
 import time
 import spok_api
 import autoscaler
+import prom_monitor
 from operator_context import CustomContext
 from operator_context import ReplicaState
     
@@ -193,6 +195,12 @@ def update_replicas_fn(spec, status, namespace, name, logger, memo: CustomContex
         pgpool_pod.delete()
 
         return {'status': {'standbyReplicas': new_replicas}}  # 更新kopf的status
+
+@kopf.timer('mygroup.mydomain', 'v1', 'spoks', interval=10)
+def monitor(spec, logger, **kwargs):
+    logger.info(f"Spok is periodic monitoring prometheus metrics ....................................")
+    prom_monitor.get_prometheus_metrics(logger)
+    pass
 
 if __name__ == '__main__':
     print('start operator main with state replica_state_dict')

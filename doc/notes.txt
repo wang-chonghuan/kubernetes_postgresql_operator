@@ -789,4 +789,77 @@ For more information on running Prometheus, visit:
 https://prometheus.io/
 w@kw-master:~$ 
 
-----------------------------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------------------CPU使用率
+
+node_cpu_seconds_total
+是有返回的，你给我一个平均的CPU使用率吧
+ChatGPT
+你可以使用以下的Prometheus查询来获取平均CPU使用率：
+
+promql
+Copy code
+avg(1 - rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100
+这个查询的工作原理是这样的：
+
+node_cpu_seconds_total{mode="idle"}: 这会选择名为 node_cpu_seconds_total 的时间序列，其中 mode 标签的值为 idle，也就是说，这个时间序列记录了 CPU 在空闲模式下的总运行时间。
+rate(...[5m]): 这个函数计算的是上述时间序列在过去5分钟内的平均变化速率，也就是说，每秒钟 CPU 的空闲时间是怎么变化的。
+1 - rate(...): 因为我们计算的是 CPU 的空闲时间，所以需要用 1 减去这个比率，得到的就是 CPU 的使用率。
+avg(...)：最后，我们对所有的时间序列求平均，得到的就是平均的 CPU 使用率。
+最后，我们将结果乘以100，将其转换为百分比。
+
+注意，这个查询返回的是所有选中的时间序列的平均值。如果你有多个节点，并且所有节点都被选中，那么你将得到所有节点的平均 CPU 使用率。
+
+-----------------------------------------------------------------------------------实现周期性查询CPU的平均使用率
+
+实现周期性查询CPU的平均使用率
+
+我们把集群内部可访问的IP和集群外部可访问的IP区分开
+内部可访问的IP是只能通过Pod之间的网络来访问的IP
+外部的是可以在安装k8s的服务器上访问的IP
+注意下述两个区别
+The Prometheus server can be accessed via port 80 on the following DNS name from within your cluster:
+prometheus-server.default.svc.cluster.local
+
+
+Get the Prometheus server URL by running these commands in the same shell:
+  export POD_NAME=$(kubectl get pods --namespace default -l "app.kubernetes.io/name=prometheus,app.kubernetes.io/instance=prometheus" -o jsonpath="{.items[0].metadata.name}")
+  kubectl --namespace default port-forward $POD_NAME 9090
+
+prometheus-server.default.svc.cluster.local只能在集群内部访问
+所以当我们把opt打包成pod运行时，可以访问该ip
+但是如果opt是在集群外部运行的，必须用第二种方法
+但是第二种方法是IP转发到localhost，不可能这么用，于是我们需要写一个svc来暴露该pod ip
+svc有两种暴露的方法，一是nodeport，二是loadbalancer，第二种可能不支持。
+nodeport是指在每个节点上都暴露出一个IP和端口能够访问到pod-ip，也就是prom的查询restful api
+
+于是我们先根据文档上的方法，来写一个nodeport如下
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus-server-nodeport
+  namespace: default
+spec:
+  selector:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/instance: prometheus
+  ports:
+    - protocol: TCP
+      port: 9090
+      nodePort: 30090
+      targetPort: 9090
+  type: NodePort
+然后在opt中，查询出随便一个node的IP，用该IP来访问该服务
+api = pykube.HTTPClient(pykube.KubeConfig.from_file())
+nodes = list(pykube.Node.objects(api).filter())
+node_ip = nodes[0].obj['status']['addresses'][0]['address']
+logger.info(f'call get_prometheus_metrics.............{node_ip}')
+url = f"http://{node_ip}:30090/api/v1/query"
+query = 'avg(1 - rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100'
+response = requests.get(url, params={'query': query})
+注意可以先用curl http://{node_ip}:30090来检查该IP是否可访问
+
+最后，周期性来访问该ip的方法是
+@kopf.timer('mygroup.mydomain', 'v1', 'spoks', interval=10)
+def monitor(spec, logger, **kwargs):
+
+具体实现参考代码
