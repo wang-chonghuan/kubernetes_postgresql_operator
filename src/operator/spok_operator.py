@@ -196,10 +196,10 @@ def update_replicas_fn(spec, status, namespace, name, logger, memo: CustomContex
 
         return {'status': {'standbyReplicas': new_replicas}}  # 更新kopf的status
 
-@kopf.timer('mygroup.mydomain', 'v1', 'spoks', interval=10)
-def monitor(spec, logger, **kwargs):
+@kopf.timer('mygroup.mydomain', 'v1', 'spoks', interval=300)
+def monitor(spec, logger, memo: CustomContext, **kwargs):
     logger.info(f"Spok is periodic monitoring prometheus metrics ....................................")
-    prom_monitor.get_prometheus_metrics(logger)
+    prom_monitor.get_prometheus_metrics(logger, memo)
     pass
 
 if __name__ == '__main__':
