@@ -1,48 +1,60 @@
+import os
 import datetime
 import json
-import subprocess
-from operator_context import CustomContext
 import pykube
 import requests
 import openai_client
-import autoscaler
-import spok_api
+import openai
+from states import CustomContext
+import states
+from configs import *
 
-from prometheus_api_client import PrometheusConnect
-from prometheus_api_client.utils import parse_datetime
-
-def get_prometheus_metrics_simple(logger):
+# The Prometheus server can be accessed via port 80 on the following DNS name from within your cluster: prometheus-server.default.svc.cluster.local
+def get_prometheus_metric_in_cluster(logger):
     try:
         api = pykube.HTTPClient(pykube.KubeConfig.from_file())
         nodes = list(pykube.Node.objects(api).filter())
         node_ip = nodes[0].obj['status']['addresses'][0]['address']
-        logger.info(f'call get_prometheus_metrics.............{node_ip}')
+        logger.info(f'SPOK_LOG call get_prometheus_metrics.............{node_ip}')
 
-        url = f"http://{node_ip}:30090/api/v1/query"
         query = 'sum(container_memory_usage_bytes{namespace="default", container="postgres"}) / sum(container_spec_memory_limit_bytes{namespace="default", container="postgres"})'
-        response = requests.get(url, params={'query': query})
+        response = requests.get(URL_PROMETHEUS_SERVER_IN_CLUSTER, params={'query': query})
         
         results = response.json()
         if results['status'] == 'success':
-            logger.info('call success')
+            logger.info('SPOK_LOG call success')
             metrics = results['data']['result']
             logger.info(json.dumps(metrics, indent=4))
-            #openai_client.get_ai_advice(logger, metrics)
             return metrics
         else:
-            logger.info('Failed to query Prometheus: ignoring metric collection.')
+            logger.info('SPOK_LOG Failed to query Prometheus: ignoring metric collection.')
     except Exception as e:
-        logger.info(f'Error accessing Prometheus or processing results: {e}. Ignoring metric collection.')
+        logger.info(f'SPOK_LOG Error accessing Prometheus or processing results: {e}. Ignoring metric collection.')
 
 
-def scale_on_metrics(api, sts, old_replicas, logger, memo: CustomContext, spok_name, spok_ns):
+def url_prometheus_server_out_cluster():
+    api = pykube.HTTPClient(pykube.KubeConfig.from_file())
+    nodes = list(pykube.Node.objects(api).filter())
+    node_ip = nodes[0].obj['status']['addresses'][0]['address']
+    url = f"http://{node_ip}:30090/api/v1/query"
+    return url
+
+def get_ai_advice(logger, message):
+    # Load your API key from an environment variable or secret management service
+    logger.info(f'SPOK_LOG openAI gpt4, sending message')
+    openai.api_key = os.getenv("OPENAI_API_KEY")
+    chat_completion = openai.ChatCompletion.create(
+        model="gpt-4", 
+        messages=[
+            {"role": "user", "content": message}
+    ])
+    logger.info('SPOK_LOG ' + chat_completion.choices[0].message.content)
+    return chat_completion.choices[0].message.content
+
+def scale_on_metrics(api, logger, memo: CustomContext, spok_name, spok_ns):
     try:
-        api = pykube.HTTPClient(pykube.KubeConfig.from_file())
-        nodes = list(pykube.Node.objects(api).filter())
-        node_ip = nodes[0].obj['status']['addresses'][0]['address']
-        logger.info(f'call get_prometheus_metrics.............{node_ip}')
-
-        url = f"http://{node_ip}:30090/api/v1/query"
+        url = url_prometheus_server_out_cluster()
+        logger.info(f'SPOK_LOG call get_prometheus_metrics on url out cluster.............{url}')
 
         queries = {
             "node_cpu_utilization_percentage": 'avg (rate(node_cpu_seconds_total{mode!="idle"}[5m])) * 100',
@@ -67,7 +79,7 @@ def scale_on_metrics(api, sts, old_replicas, logger, memo: CustomContext, spok_n
 
                 results[key] = result
             else:
-                logger.info(f'Query failed: {query}')
+                logger.info(f'SPOK_LOG Query failed: {query}')
                 results[key] = None
 
         results["current_standby_replicas"] = memo.current_standby_replicas
@@ -96,10 +108,9 @@ def scale_on_metrics(api, sts, old_replicas, logger, memo: CustomContext, spok_n
             advice_json = json.loads(advice_str)
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse JSON: {e}")
-        logger.info('gpt4 call end')
+        logger.info('SPOK_LOG gpt4 call end')
         new_replicas = int(advice_json["desired_standby_replicas"])
-        #autoscaler.scale_by_load(api, sts, old_replicas, new_replicas, logger, memo, spok_name, spok_ns)
-        spok_api.update_spok_instance(spok_name, spok_ns, new_replicas)
+        states.update_spok_instance(spok_name, spok_ns, new_replicas)
 
     except Exception as e:
-        logger.info(f'Error accessing Prometheus or processing results: {e}. Ignoring metric collection.')
+        logger.info(f'SPOK_LOG Error accessing Prometheus or processing results: {e}. Ignoring metric collection.')

@@ -4,6 +4,7 @@ import time
 path = "../src"
 commands = [
     f"kubectl apply -f {path}/prometheus/svc-prom-server-nodeport.yaml",
+    f"kubectl apply -f {path}/service/headless-service.yaml",
     f"kubectl apply -f {path}/storage/pv-0.yaml", #创建主库PV
     f"kubectl apply -f {path}/storage/pv-1.yaml", #创建standby库PV
     f"kubectl apply -f {path}/storage/pv-2.yaml", #创建standby库PV
