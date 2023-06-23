@@ -11,4 +11,5 @@ def get_ai_advice(logger, message):
             {"role": "user", "content": message}
     ])
     logger.info(chat_completion.choices[0].message.content)
+    return chat_completion.choices[0].message.content
 

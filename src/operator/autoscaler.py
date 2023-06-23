@@ -1,6 +1,7 @@
 import subprocess
 import pgpool_update
 from operator_context import ReplicaState
+import spok_api
 
 def scale_out(api, sts, old_replicas, new_replicas, logger, memo):
     if new_replicas > old_replicas:
@@ -48,3 +49,18 @@ def scale_in(api, sts, old_replicas, new_replicas, logger, memo):
             memo.current_standby_replicas = memo.current_standby_replicas - 1
             del memo.replica_state_dict[pod_name]
             logger.info(f"Deleted state of pod {pod_name} from memo")
+
+def scale_by_load(api, sts, old_replicas, new_replicas, logger, memo, spok_name, spok_ns):
+    if new_replicas == old_replicas:
+        logger.info('no scale by load')
+    elif new_replicas > old_replicas:
+        logger.info('scale out by load')
+        spok_api.update_spok_instance(spok_name, spok_ns, new_replicas)
+        scale_out(api, sts, old_replicas, new_replicas, logger, memo)
+    elif new_replicas < old_replicas:
+        logger.info('scale in by load')
+        spok_api.update_spok_instance(spok_name, spok_ns, new_replicas)
+        scale_in(api, sts, old_replicas, new_replicas, logger, memo)
+    logger.info('scale by load end ')
+        
+    

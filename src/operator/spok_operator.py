@@ -65,8 +65,23 @@ def create_fn(spec, meta, namespace, logger, memo: CustomContext, **kwargs):
                 pykube.StatefulSet(api, resource_dict).create()
 
     # Wait for 5 seconds
-    logger.info("SPOK_LOG_ Waiting for 5 seconds before starting pg-sts-replica...")
-    time.sleep(5)
+    logger.info("SPOK_LOG query master running before starting pg-sts-replica...")
+    # Start of modification - Block and check the status of the pod before proceeding
+    pod_running = False
+    while not pod_running:
+        logger.info("SPOK_LOG_ Waiting for 5 seconds before checking pgset-master-0 status...")
+        time.sleep(3)
+        try:
+            pod = pykube.Pod.objects(api).get_by_name("pgset-master-0")
+            pod_status = pod.obj.get('status', {}).get('phase', '')
+            if pod_status.lower() == "running":
+                pod_running = True
+                logger.info("SPOK_LOG_ pgset-master-0 is now running.")
+            else:
+                logger.info(f"SPOK_LOG_ pgset-master-0 is in status {pod_status}, waiting...")
+        except pykube.exceptions.ObjectDoesNotExist:
+            logger.info("SPOK_LOG_ pgset-master-0 does not exist, waiting...")
+    # End of modification
     
     #先创建一个只含0个replica的sts，然后如果有更多节点，就对它进行scale_out
     with open('../statefulset/pg-sts-replica.yaml', 'r') as file:
@@ -196,11 +211,12 @@ def update_replicas_fn(spec, status, namespace, name, logger, memo: CustomContex
 
         return {'status': {'standbyReplicas': new_replicas}}  # 更新kopf的status
 
-@kopf.timer('mygroup.mydomain', 'v1', 'spoks', interval=300)
-def monitor(spec, logger, memo: CustomContext, **kwargs):
+@kopf.timer('mygroup.mydomain', 'v1', 'spoks', interval=300, idle=60)
+def monitor(spec, logger, memo: CustomContext, name, namespace, **kwargs):
     logger.info(f"Spok is periodic monitoring prometheus metrics ....................................")
-    prom_monitor.get_prometheus_metrics(logger, memo)
-    pass
+    api = pykube.HTTPClient(pykube.KubeConfig.from_file())
+    sts = pykube.StatefulSet.objects(api).get(name='pgset-replica')
+    prom_monitor.scale_on_metrics(api, sts, memo.current_standby_replicas, logger, memo, name, namespace)
 
 if __name__ == '__main__':
     print('start operator main with state replica_state_dict')

@@ -5,11 +5,13 @@ from operator_context import CustomContext
 import pykube
 import requests
 import openai_client
+import autoscaler
+import spok_api
 
 from prometheus_api_client import PrometheusConnect
 from prometheus_api_client.utils import parse_datetime
 
-def get_prometheus_metrics2(logger):
+def get_prometheus_metrics_simple(logger):
     try:
         api = pykube.HTTPClient(pykube.KubeConfig.from_file())
         nodes = list(pykube.Node.objects(api).filter())
@@ -33,7 +35,7 @@ def get_prometheus_metrics2(logger):
         logger.info(f'Error accessing Prometheus or processing results: {e}. Ignoring metric collection.')
 
 
-def get_prometheus_metrics(logger, memo: CustomContext):
+def scale_on_metrics(api, sts, old_replicas, logger, memo: CustomContext, spok_name, spok_ns):
     try:
         api = pykube.HTTPClient(pykube.KubeConfig.from_file())
         nodes = list(pykube.Node.objects(api).filter())
@@ -69,7 +71,7 @@ def get_prometheus_metrics(logger, memo: CustomContext):
                 results[key] = None
 
         results["current_standby_replicas"] = memo.current_standby_replicas
-        #results["postgres_pod_memory_usage_percentage"] = 99
+        results["postgres_pod_memory_usage_percentage"] = 99
         metrics = json.dumps(results, indent=4)
         logger.info(metrics)
         
@@ -89,7 +91,15 @@ def get_prometheus_metrics(logger, memo: CustomContext):
                     Please return only the filled JSON, nothing more.
                 """
 
-        openai_client.get_ai_advice(logger, metrics + prompt)
+        advice_str = openai_client.get_ai_advice(logger, metrics + prompt)
+        try:
+            advice_json = json.loads(advice_str)
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse JSON: {e}")
+        logger.info('gpt4 call end')
+        new_replicas = int(advice_json["desired_standby_replicas"])
+        #autoscaler.scale_by_load(api, sts, old_replicas, new_replicas, logger, memo, spok_name, spok_ns)
+        spok_api.update_spok_instance(spok_name, spok_ns, new_replicas)
 
     except Exception as e:
         logger.info(f'Error accessing Prometheus or processing results: {e}. Ignoring metric collection.')
