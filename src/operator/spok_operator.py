@@ -33,7 +33,7 @@ def on_startup(logger, memo: Optional[CustomContext], **_):
 
 
 @kopf.on.create('mygroup.mydomain', 'v1', 'spoks')
-def create_fn(spec, meta, namespace, logger, memo: CustomContext, **kwargs):
+def create_fn(spec, name, namespace, logger, memo: CustomContext, **kwargs):
     api = pykube.HTTPClient(pykube.KubeConfig.from_file())
 
     file_list = [
@@ -91,9 +91,11 @@ def create_fn(spec, meta, namespace, logger, memo: CustomContext, **kwargs):
         sts = pykube.StatefulSet(api, resource_dict)
         sts.create()
 
+    # 这里不能用update_spok_instance，因为spok spec里的副本数本来就是2，你update了2,不会导致回调响应
     logger.info(f"一共要创建{standbyReplicas}个副本开始scale out剩余的副本")
     if standbyReplicas > memo.current_standby_replicas:
         autoscaler.scale_out(api, sts, memo.current_standby_replicas, standbyReplicas, logger, memo)
+        #spok_api.update_spok_instance(name, namespace, standbyReplicas)
 
     logger.info(f"Cluster created, memo.replica_state_dict {memo.replica_state_dict}")
 
