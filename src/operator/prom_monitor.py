@@ -3,6 +3,7 @@ import json
 import subprocess
 import pykube
 import requests
+import openai_client
 
 from prometheus_api_client import PrometheusConnect
 from prometheus_api_client.utils import parse_datetime
@@ -23,6 +24,7 @@ def get_prometheus_metrics(logger):
             logger.info('call success')
             metrics = results['data']['result']
             logger.info(json.dumps(metrics, indent=4))
+            openai_client.get_ai_advice(logger, metrics)
             return metrics
         else:
             logger.info('Failed to query Prometheus: ignoring metric collection.')

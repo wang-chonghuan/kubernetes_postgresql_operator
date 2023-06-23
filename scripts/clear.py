@@ -4,6 +4,7 @@ import getpass
 # Your commands
 commands = [
     "kubectl delete deployment pgpool",
+    "kubectl delete service prometheus-server-nodeport",
     "kubectl delete spok spok-cluster",
     #"kubectl delete sts pgset-master",
     #"kubectl delete sts pgset-replica",
