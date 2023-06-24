@@ -1,4 +1,5 @@
 import subprocess
+import time
 import pykube
 from states import ReplicaState
 from configs import *
@@ -30,6 +31,7 @@ def del_pgpool_replicas(api, old_replicas, new_replicas, logger):
     logger.info(f"SPOK_LOG Removed {old_replicas - new_replicas} replicas from pgpool ConfigMap")
 
 def scale_out(api, sts, old_replicas, new_replicas, logger, memo):
+    logger.info(f"SPOK_LOG scale_out {old_replicas} to {new_replicas}\n{memo}")
     if new_replicas > old_replicas:
         add_pgpool_replicas(api, old_replicas, new_replicas, logger)
         for i in range(old_replicas, new_replicas):
@@ -39,8 +41,10 @@ def scale_out(api, sts, old_replicas, new_replicas, logger, memo):
                 'psql', '-U', PG_USERNAME, '-c', 
                 f"SELECT * FROM pg_create_physical_replication_slot('{slot_name}');"
             ]
+            logger.info(f"SPOK_LOG scale_out is executing command: {command}")
             subprocess.run(command, check=True)
-            logger.info(f"SPOK_LOG Created replication slot {slot_name} in the master database")
+            time.sleep(1)
+            logger.info(f"SPOK_LOG scale_out Created replication slot {slot_name} in the master database")
 
             pod_name = f"{POD_NAME_REPLICA_PREFIX}{i}"
             memo.current_standby_replicas = memo.current_standby_replicas + 1
@@ -50,31 +54,35 @@ def scale_out(api, sts, old_replicas, new_replicas, logger, memo):
         sts.reload()
         sts.obj['spec']['replicas'] = new_replicas
         sts.update()
-        logger.info(f"SPOK_LOG Updated replicas of pgset-replica StatefulSet to {new_replicas}")
+        logger.info(f"SPOK_LOG scale_out Updated replicas of pgset-replica StatefulSet to {new_replicas}")
 
 def scale_in(api, sts, old_replicas, new_replicas, logger, memo):
+    logger.info(f"SPOK_LOG scale_in {old_replicas} to {new_replicas}\n{memo}")
     if new_replicas < old_replicas:
         del_pgpool_replicas(api, old_replicas, new_replicas, logger)
         # The sts object has been modified by someone else, retry with the latest object
         sts.reload()
         sts.obj['spec']['replicas'] = new_replicas
         sts.update()
-        logger.info(f"SPOK_LOG Updated replicas of pgset-replica StatefulSet to {new_replicas}")
+        logger.info(f"SPOK_LOG scale_in Updated replicas of pgset-replica StatefulSet to {new_replicas}")
 
         for i in range(old_replicas-1, new_replicas-1, -1):
             slot_name = f"pgset{i}_slot"
+            logger.info(f"SPOK_LOG scale_in deleting slot {i}, {slot_name}")
             command = [
                 'kubectl', 'exec', '-it', POD_NAME_MASTER, '--',
                 'psql', '-U', PG_USERNAME, '-c', 
                 f"SELECT pg_drop_replication_slot('{slot_name}');"
             ]
+            logger.info(f"SPOK_LOG scale_in is executing command: {command}")
             subprocess.run(command, check=True)
-            logger.info(f"SPOK_LOG Dropped replication slot {slot_name} in the master database")
+            time.sleep(1)
+            logger.info(f"SPOK_LOG scale_in Dropped replication slot {slot_name} in the master database")
 
             pod_name = f"{POD_NAME_REPLICA_PREFIX}{i}"
             memo.current_standby_replicas = memo.current_standby_replicas - 1
             del memo.replica_state_dict[pod_name]
-            logger.info(f"SPOK_LOG Deleted state of pod {pod_name} from memo")
+            logger.info(f"SPOK_LOG scale_in Deleted state of pod {pod_name} from memo")
 
         
     
