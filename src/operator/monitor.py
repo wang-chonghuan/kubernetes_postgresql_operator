@@ -3,7 +3,6 @@ import datetime
 import json
 import pykube
 import requests
-import openai_client
 import openai
 from states import CustomContext
 import states
@@ -83,7 +82,7 @@ def scale_on_metrics(api, logger, memo: CustomContext, spok_name, spok_ns):
                 results[key] = None
 
         results["current_standby_replicas"] = memo.current_standby_replicas
-        results["postgres_pod_memory_usage_percentage"] = 99
+        #results["postgres_pod_memory_usage_percentage"] = 99
         metrics = json.dumps(results, indent=4)
         logger.info(metrics)
         
@@ -95,7 +94,7 @@ def scale_on_metrics(api, logger, memo: CustomContext, spok_name, spok_ns):
                     ```json
                     {
                         "description": "<A brief description of the current load situation and the recommended scaling decision>",
-                        "desired_standby_replicas": "<The target number of replicas for the PostgreSQL cluster>",
+                        "desired_standby_replicas": "<The target number of replicas for the PostgreSQL cluster, the range is strictly 1,2,3>",
                         "alarm": "<A warning message if the scaling decision exceeds the cluster's capabilities>"
                     }
                     ```
@@ -103,14 +102,17 @@ def scale_on_metrics(api, logger, memo: CustomContext, spok_name, spok_ns):
                     Please return only the filled JSON, nothing more.
                 """
 
-        advice_str = openai_client.get_ai_advice(logger, metrics + prompt)
+        advice_str = get_ai_advice(logger, metrics + prompt)
         try:
             advice_json = json.loads(advice_str)
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse JSON: {e}")
         logger.info('SPOK_LOG gpt4 call end')
-        new_replicas = int(advice_json["desired_standby_replicas"])
-        states.update_spok_instance(spok_name, spok_ns, new_replicas)
+        new_replicas = 1 #int(advice_json["desired_standby_replicas"])
+        if new_replicas > 3 or new_replicas < 1:
+            logger.error(f"wrong range")
+            return
+        states.update_spok_instance(spok_name, new_replicas)
 
     except Exception as e:
         logger.info(f'SPOK_LOG Error accessing Prometheus or processing results: {e}. Ignoring metric collection.')

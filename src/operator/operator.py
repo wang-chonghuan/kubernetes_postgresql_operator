@@ -5,7 +5,7 @@ from typing import Optional
 import kopf
 import pykube
 import yaml
-import monitor
+import monitor as prom_gpt_scaler
 import states
 from states import CustomContext
 from states import ReplicaState
@@ -18,7 +18,7 @@ def on_startup(logger, memo: Optional[CustomContext], **_):
     if memo is None:
         memo = CustomContext()
     
-    spoks = states.list_spok_instances(NAMESPACE)
+    spoks = states.list_spok_instances()
     
     for spok in spoks.get('items', []):
         name = spok['metadata']['name']
@@ -30,12 +30,7 @@ def on_startup(logger, memo: Optional[CustomContext], **_):
     for pod in pods:
         pod_name = pod.obj['metadata']['name']
         pod_status = pod.obj.get('status', {}).get('phase', '')
-        # Check if the pod's name starts with POD_NAME_REPLICA_PREFIX and it is not in the 'Running' phase
-        if pod_name.startswith(POD_NAME_REPLICA_PREFIX) and pod_status != 'Running':
-            # Delete the pod
-            pod.delete()
-            logger.info(f"SPOK_LOG Pod {pod_name} has been deleted as it is not in 'Running' phase.")
-        elif pod_name.startswith(POD_NAME_REPLICA_PREFIX):
+        if pod_name.startswith(POD_NAME_REPLICA_PREFIX):
             # Add it to the replica_state_dict
             memo.replica_state_dict[pod_name] = ReplicaState(has_been_restarted_by_opt=False, is_now_deleted_by_opt=False)
     logger.info(f"SPOK_LOG Startup: Initialized memo.current_standby_replicas to {memo.current_standby_replicas}")
@@ -182,7 +177,10 @@ def pod_event_fn(event, body, logger, memo: CustomContext, **kwargs):
 
     # 如果该pod失败，又是opt导致的，那么就忽略
     # If the pod fails and it is caused by the opt, then ignore
-    if will_pod_restart and memo.replica_state_dict.get(pod_name).is_now_deleted_by_opt == True:
+    if (will_pod_restart 
+        and memo.replica_state_dict.get(pod_name) 
+        and memo.replica_state_dict.get(pod_name).is_now_deleted_by_opt == True):
+        
         logger.info(f"SPOK_LOG The pod fails and is caused by the opt, then it means that the deletion event has been processed, and you can restore is_now_deleted_by_opt to false")
         has_been_restarted_by_opt = memo.replica_state_dict.get(pod_name).has_been_restarted_by_opt
         memo.replica_state_dict[pod_name] = ReplicaState(has_been_restarted_by_opt, is_now_deleted_by_opt=False)
@@ -190,7 +188,10 @@ def pod_event_fn(event, body, logger, memo: CustomContext, **kwargs):
 
     # 如果该pod失败，但不是opt导致的，那么要重置该副本的状态
     # If the pod fails, but not caused by the opt, then reset the state of the copy
-    elif will_pod_restart and memo.replica_state_dict.get(pod_name).is_now_deleted_by_opt == False:
+    elif (will_pod_restart 
+          and memo.replica_state_dict.get(pod_name) 
+          and memo.replica_state_dict.get(pod_name).is_now_deleted_by_opt == False):
+        
         logger.info(f"SPOK_LOG The pod failed, but not caused by the opt, then reset the state of the copy")
         memo.replica_state_dict[pod_name] = ReplicaState(has_been_restarted_by_opt=False, is_now_deleted_by_opt=False)
 
@@ -211,7 +212,7 @@ def update_replicas_fn(spec, status, namespace, name, logger, memo: CustomContex
 
         # 这里遇到的问题是修改cr导致scale_out以后，status里读到的standbyReplicas始终是 1，不会变成2。所以我想从2扩容到3时，就失败了。解决方法是要手动更新status里的这个值，否则它不会变。更新 Spok 对象
         #The problem I encountered here was that after changing cr to cause scale_out, the standbyReplicas read in status would always be 1 and would not change to 2. So when I tried to scale from 2 to 3, it failed. The solution is to update this value in status manually, otherwise it will not change. Update Spok object
-        states.update_spok_instance(name, namespace, new_replicas)
+        #states.update_spok_instance(name, new_replicas)
 
         sts = pykube.StatefulSet.objects(api).get(name=STS_NAME_REPLICA)
 
@@ -228,7 +229,7 @@ def monitor(spec, logger, memo: CustomContext, name, namespace, **kwargs):
     logger.info(f"SPOK_LOG Spok is periodic monitoring prometheus metrics ....................................")
     api = pykube.HTTPClient(pykube.KubeConfig.from_file())
     sts = pykube.StatefulSet.objects(api).get(name=STS_NAME_REPLICA)
-    monitor.scale_on_metrics(api, logger, memo, name, namespace)
+    prom_gpt_scaler.scale_on_metrics(api, logger, memo, name, namespace)
 
 if __name__ == '__main__':
     print('SPOK_LOG start operator main with state replica_state_dict')

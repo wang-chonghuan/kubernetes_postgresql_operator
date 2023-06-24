@@ -1,3 +1,5 @@
+常见的不能启动的原因是pvc和pv没删除干净，工作节点挂掉
+
 pgset-0.pgsql-headless.default.svc.cluster.local
 pgset-1.pgsql-headless.default.svc.cluster.local
 
