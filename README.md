@@ -1,4 +1,4 @@
-# SimplePostgresOperatorKubernetes
+# KPOP KubernetesPostgresOperatorPython
 This project is a highly available PostgreSQL replication cluster on Kubernetes with a Python Operator.
 
 # Key features of this project:
