@@ -1,4 +1,4 @@
-# KPOP KubernetesPostgresOperatorPython
+# Database per Service Kubernetes Operator
 This project is a highly available PostgreSQL replication cluster on Kubernetes with a Python Operator.
 
 # Key features of this project:
@@ -18,11 +18,5 @@ Kopf,
 Pgpool2,
 Prometheus.
 
-# Secondary tech stack:
-FastAPI,
-React,
-MongoDB,
-GPT4.
-
 # Research
-This project serves as an example of my dissertation: A systematic approach to deploying high availability stateful microservices on Kubernetes.
+This project serves as an example of my Master dissertation: "Database per Service Kubernetes Operator: A Systematic Approach for Deploying Stateful Microservices with Auto-Scaling by GPT-4"
